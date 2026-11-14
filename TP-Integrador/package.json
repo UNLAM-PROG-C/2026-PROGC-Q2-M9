@@ -1,0 +1,15 @@
+{
+  "name": "trivia-musical-concurrente",
+  "version": "1.1.0",
+  "description": "TP Programacion Concurrente - UNLaM",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test:alt02": "node tests/alt02-concurrent-answers.js",
+    "test:alt02:matrix": "node tests/alt02-matrix.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.16.0"
+  }
+}
