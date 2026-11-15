@@ -2,24 +2,42 @@ const {spawn} = require('child_process');
 const path = require('path');
 const WebSocket = require('ws');
 
-const ROUNDS = Math.max(1, Number.parseInt(process.env.ALT02_ROUNDS || '20', 10));
-const CLIENT_COUNT = Math.max(2, Number.parseInt(process.env.ALT02_CLIENTS || '2', 10));
+const ROUNDS = Math.max(
+  1, Number.parseInt(process.env.ALT02_ROUNDS || '20', 10)
+);
+const CLIENT_COUNT = Math.max(
+  2, Number.parseInt(process.env.ALT02_CLIENTS || '2', 10)
+);
 const PORT = Number.parseInt(process.env.ALT02_PORT || '3199', 10);
 const ANSWER = process.env.ALT02_ANSWER || 'ALT02 TEST SONG';
-const START_DELAY_MS = Number.parseInt(process.env.ALT02_START_DELAY_MS || '1200', 10);
+const START_DELAY_MS = Number.parseInt(
+  process.env.ALT02_START_DELAY_MS || '1200', 10
+);
 const TIMEOUT_MS = Number.parseInt(process.env.ALT02_TIMEOUT_MS || '30000', 10);
-const QUEUE_DRAIN_DELAY_MS = Number.parseInt(process.env.ALT02_QUEUE_DRAIN_DELAY_MS || '10', 10);
-const SETTLE_MS = Math.max(0, Number.parseInt(process.env.ALT02_SETTLE_MS || '100', 10));
+const QUEUE_DRAIN_DELAY_MS = Number.parseInt(
+  process.env.ALT02_QUEUE_DRAIN_DELAY_MS || '10', 10
+);
+const SETTLE_MS = Math.max(
+  0, Number.parseInt(process.env.ALT02_SETTLE_MS || '100', 10)
+);
 const EXPECTED_WINNER = process.env.ALT02_EXPECTED_WINNER || null;
-const LEAD_CLIENT_NUMBER = process.env.ALT02_LEAD_CLIENT ? Number.parseInt(process.env.ALT02_LEAD_CLIENT, 10) : null;
-const offsetsText = process.env.ALT02_OFFSETS || Array(CLIENT_COUNT).fill('0').join(',');
+const LEAD_CLIENT_NUMBER = process.env.ALT02_LEAD_CLIENT
+  ? Number.parseInt(process.env.ALT02_LEAD_CLIENT, 10)
+  : null;
+const offsetsText = process.env.ALT02_OFFSETS ||
+  Array(CLIENT_COUNT).fill('0').join(',');
 const OFFSETS = offsetsText.split(',').map(v => Number.parseInt(v, 10));
 
 if (OFFSETS.length !== CLIENT_COUNT || OFFSETS.some(Number.isNaN)) {
-  throw new Error(`ALT02_OFFSETS debe contener ${CLIENT_COUNT} enteros, uno por cliente. Ejemplo: ${Array(CLIENT_COUNT).fill(0).join(',')}`);
+  throw new Error(
+    `ALT02_OFFSETS debe contener ${CLIENT_COUNT} enteros, uno por cliente. ` +
+    `Ejemplo: ${Array(CLIENT_COUNT).fill(0).join(',')}`
+  );
 }
 
-if (LEAD_CLIENT_NUMBER !== null && (Number.isNaN(LEAD_CLIENT_NUMBER) || LEAD_CLIENT_NUMBER < 1 || LEAD_CLIENT_NUMBER > CLIENT_COUNT)) {
+if (LEAD_CLIENT_NUMBER !== null &&
+    (Number.isNaN(LEAD_CLIENT_NUMBER) || LEAD_CLIENT_NUMBER < 1 ||
+    LEAD_CLIENT_NUMBER > CLIENT_COUNT)) {
   throw new Error(`ALT02_LEAD_CLIENT debe estar entre 1 y ${CLIENT_COUNT}.`);
 }
 
@@ -55,9 +73,15 @@ function consumeServerText(text) {
       continue;
     }
 
-    let match = line.match(/ANSWER #(\d+) recibido de \[[^|]+\| ([^\]]+)\] en ronda (\d+)\./);
+    let match = line.match(
+      /ANSWER #(\d+) recibido de \[[^|]+\| ([^\]]+)\] en ronda (\d+)\./
+    );
     if (match) {
-      const receipt = {sequence: Number(match[1]), displayName: match[2].trim(), round: Number(match[3])};
+      const receipt = {
+        sequence: Number(match[1]),
+        displayName: match[2].trim(),
+        round: Number(match[3]),
+      };
       answerReceipts.push(receipt);
       maybeReleaseFollowersAfterServerReceipt(receipt);
     }
@@ -72,7 +96,9 @@ function consumeServerText(text) {
       adjudications.push({round: Number(match[1]), sequence: Number(match[2])});
     }
 
-    match = line.match(/\[GCx\] ANSWER #(\d+) descartado: ronda (\d+) ya adjudicada/);
+    match = line.match(
+      /\[GCx\] ANSWER #(\d+) descartado: ronda (\d+) ya adjudicada/
+    );
     if (match) {
       rejections.push({sequence: Number(match[1]), round: Number(match[2])});
     }
@@ -122,7 +148,11 @@ function maybeFire(round) {
 
   if (LEAD_CLIENT_NUMBER !== null) {
     const leader = clients[LEAD_CLIENT_NUMBER - 1];
-    console.log(`[TEST] FIRE ronda ${round}: primero ${leader.name}; seguidores se liberan solo después de confirmar su recepción en el servidor.`);
+    console.log(
+      `[TEST] FIRE ronda ${round}: primero ${leader.name}; ` +
+      'seguidores se liberan solo después de confirmar su recepción en ' +
+      'el servidor.'
+    );
     sendAnswer(leader, 0);
     return;
   }
@@ -132,7 +162,8 @@ function maybeFire(round) {
 }
 
 function maybeReleaseFollowersAfterServerReceipt(receipt) {
-  if (LEAD_CLIENT_NUMBER === null || followerReleaseByRound.has(receipt.round)) {
+  if (LEAD_CLIENT_NUMBER === null ||
+      followerReleaseByRound.has(receipt.round)) {
     return;
   }
 
@@ -143,7 +174,11 @@ function maybeReleaseFollowersAfterServerReceipt(receipt) {
 
   followerReleaseByRound.add(receipt.round);
   leadConfirmations.set(receipt.round, receipt);
-  console.log(`[TEST] LEAD confirmado ronda ${receipt.round}: ${leader.name} obtuvo ANSWER #${String(receipt.sequence).padStart(6, '0')}. Liberando seguidores.`);
+  console.log(
+    `[TEST] LEAD confirmado ronda ${receipt.round}: ${leader.name} obtuvo ` +
+    `ANSWER #${String(receipt.sequence).padStart(6, '0')}. ` +
+    'Liberando seguidores.'
+  );
 
   clients.forEach((client, index) => {
     if (index === LEAD_CLIENT_NUMBER - 1) {
@@ -235,18 +270,28 @@ function validate() {
   const winnerDistribution = new Map();
 
   for (let round = 1; round <= ROUNDS; round++) {
-    const perClientWinners = clients.map(client => client.winnersByRound.get(round) || []);
+    const perClientWinners = clients.map(
+      client => client.winnersByRound.get(round) || []
+    );
 
     for (let i = 0; i < perClientWinners.length; i++) {
       if (perClientWinners[i].length !== 1) {
-        errors.push(`Ronda ${round}: ${clients[i].name} recibió ${perClientWinners[i].length} ROUND_WINNER (esperado 1).`);
+        errors.push(
+          `Ronda ${round}: ${clients[i].name} recibió ` +
+          `${perClientWinners[i].length} ROUND_WINNER (esperado 1).`
+        );
       }
     }
 
     const visibleWinners = perClientWinners.flat();
-    const winnerIds = visibleWinners.map(winner => winner.playerId).filter(Boolean);
+    const winnerIds = visibleWinners
+        .map(winner => winner.playerId)
+        .filter(Boolean);
     if (winnerIds.length > 0 && new Set(winnerIds).size !== 1) {
-      errors.push(`Ronda ${round}: los clientes no observaron el mismo ganador (${winnerIds.join(', ')}).`);
+      errors.push(
+        `Ronda ${round}: los clientes no observaron el mismo ganador ` +
+        `(${winnerIds.join(', ')}).`
+      );
     }
 
     const representativeWinner = visibleWinners[0];
@@ -257,29 +302,47 @@ function validate() {
       );
     }
 
-    if (EXPECTED_WINNER && representativeWinner?.displayName !== EXPECTED_WINNER) {
-      errors.push(`Ronda ${round}: ganador=${representativeWinner?.displayName || 'ninguno'}; esperado=${EXPECTED_WINNER}.`);
+    if (EXPECTED_WINNER &&
+        representativeWinner?.displayName !== EXPECTED_WINNER) {
+      errors.push(
+        `Ronda ${round}: ganador=${representativeWinner?.displayName ||
+          'ninguno'}; esperado=${EXPECTED_WINNER}.`
+      );
     }
 
     const gcItems = adjudications.filter(item => item.round === round);
     if (gcItems.length !== 1) {
-      errors.push(`Ronda ${round}: GameCoordinator adjudicó ${gcItems.length} ganadores (esperado 1).`);
+      errors.push(
+        `Ronda ${round}: GameCoordinator adjudicó ${gcItems.length} ` +
+        'ganadores (esperado 1).'
+      );
     }
 
     const receipts = roundReceipts(round);
     if (receipts.length !== CLIENT_COUNT) {
-      errors.push(`Ronda ${round}: llegaron ${receipts.length} ANSWER al servidor; esperados=${CLIENT_COUNT}.`);
+      errors.push(
+        `Ronda ${round}: llegaron ${receipts.length} ANSWER al servidor; ` +
+        `esperados=${CLIENT_COUNT}.`
+      );
     }
 
     if (LEAD_CLIENT_NUMBER !== null) {
       const leader = clients[LEAD_CLIENT_NUMBER - 1];
       const confirmation = leadConfirmations.get(round);
       if (!confirmation) {
-        errors.push(`Ronda ${round}: no se confirmó la recepción autoritativa del líder ${leader.name}.`);
+        errors.push(
+          `Ronda ${round}: no se confirmó la recepción autoritativa ` +
+          `del líder ${leader.name}.`
+        );
       } else if (receipts.length) {
-        const firstReceipt = receipts.reduce((best, item) => item.sequence < best.sequence ? item : best);
+        const firstReceipt = receipts.reduce(
+          (best, item) => item.sequence < best.sequence ? item : best
+        );
         if (firstReceipt.displayName !== leader.name) {
-          errors.push(`Ronda ${round}: la menor sequence fue de ${firstReceipt.displayName}; líder esperado=${leader.name}.`);
+          errors.push(
+            `Ronda ${round}: la menor sequence fue de ` +
+            `${firstReceipt.displayName}; líder esperado=${leader.name}.`
+          );
         }
       }
     }
@@ -287,18 +350,29 @@ function validate() {
     if (receipts.length && gcItems.length === 1) {
       const firstSequence = Math.min(...receipts.map(item => item.sequence));
       if (gcItems[0].sequence !== firstSequence) {
-        errors.push(`Ronda ${round}: se adjudicó ANSWER #${gcItems[0].sequence}, pero la primera sequence recibida fue #${firstSequence}.`);
+        errors.push(
+          `Ronda ${round}: se adjudicó ANSWER #${gcItems[0].sequence}, ` +
+          `pero la primera sequence recibida fue #${firstSequence}.`
+        );
       }
     }
 
     const maxQueueSize = maxQueueSizeForRound(round);
     if (maxQueueSize < CLIENT_COUNT) {
-      errors.push(`Ronda ${round}: maxQueueSize=${maxQueueSize}; esperado al menos ${CLIENT_COUNT} para ejercitar la colisión completa.`);
+      errors.push(
+        `Ronda ${round}: maxQueueSize=${maxQueueSize}; esperado al menos ` +
+        `${CLIENT_COUNT} para ejercitar la colisión completa.`
+      );
     }
 
-    const rejectionCount = rejections.filter(item => item.round === round).length;
+    const rejectionCount = rejections.filter(
+      item => item.round === round
+    ).length;
     if (rejectionCount !== CLIENT_COUNT - 1) {
-      errors.push(`Ronda ${round}: descartes por ganador previo=${rejectionCount}; esperados=${CLIENT_COUNT - 1}.`);
+      errors.push(
+        `Ronda ${round}: descartes por ganador previo=${rejectionCount}; ` +
+        `esperados=${CLIENT_COUNT - 1}.`
+      );
     }
   }
 
@@ -309,23 +383,32 @@ function validate() {
   }
   for (let i = 1; i < sequences.length; i++) {
     if (sequences[i] <= sequences[i - 1]) {
-      errors.push(`Sequence no monotónica: ${sequences[i - 1]} -> ${sequences[i]}.`);
+      errors.push(
+        `Sequence no monotónica: ${sequences[i - 1]} -> ${sequences[i]}.`
+      );
       break;
     }
   }
 
   const finalLeaderboard = clients[0].gameOver?.leaderboard || [];
-  const totalScore = finalLeaderboard.reduce((sum, player) => sum + Number(player.score || 0), 0);
+  const totalScore = finalLeaderboard.reduce(
+    (sum, player) => sum + Number(player.score || 0), 0
+  );
   const expectedScore = ROUNDS * 100;
   if (totalScore !== expectedScore) {
-    errors.push(`Score total=${totalScore}; esperado=${expectedScore} (un único incremento de 100 por ronda).`);
+    errors.push(
+      `Score total=${totalScore}; esperado=${expectedScore} ` +
+      '(un único incremento de 100 por ronda).'
+    );
   }
 
   const globalMaxQueueSize = queueEnqueues.length
     ? Math.max(...queueEnqueues.map(item => item.size))
     : 0;
 
-  return {errors, totalScore, sequences, winnerDistribution, globalMaxQueueSize};
+  return {
+    errors, totalScore, sequences, winnerDistribution, globalMaxQueueSize,
+  };
 }
 
 function scheduleFinalize() {
@@ -342,7 +425,9 @@ function finalize() {
   }
   completed = true;
 
-  const {errors, totalScore, sequences, winnerDistribution, globalMaxQueueSize} = validate();
+  const {
+    errors, totalScore, sequences, winnerDistribution, globalMaxQueueSize,
+  } = validate();
   const distributionText = [...winnerDistribution.entries()]
       .map(([name, count]) => `${name}=${count}`)
       .join(', ') || 'sin datos';
@@ -352,21 +437,32 @@ function finalize() {
   console.log(`Clientes: ${clients.length}`);
   console.log(`Offsets seguidores: ${OFFSETS.join('/')} ms`);
   if (LEAD_CLIENT_NUMBER !== null) {
-    console.log(`Lead confirmado por recepción del servidor: ALT02-C${LEAD_CLIENT_NUMBER}`);
+    console.log(
+      `Lead confirmado por recepción del servidor: ALT02-C${LEAD_CLIENT_NUMBER}`
+    );
   }
   console.log(`Queue drain delay (test only): ${QUEUE_DRAIN_DELAY_MS} ms`);
   console.log(`Max queueSize observado: ${globalMaxQueueSize}`);
   console.log(`ANSWER recibidos: ${answerReceipts.length}`);
-  console.log(`Sequences: ${sequences.length ? `${sequences[0]}..${sequences[sequences.length - 1]}` : 'ninguna'}`);
+  console.log(
+    `Sequences: ${sequences.length
+      ? `${sequences[0]}..${sequences[sequences.length - 1]}` : 'ninguna'}`
+  );
   console.log(`Adjudicaciones GC: ${adjudications.length}`);
   console.log(`Descartes por ganador previo: ${rejections.length}`);
   console.log(`Score total: ${totalScore}`);
   console.log(`Ganadores: ${distributionText}`);
   if (EXPECTED_WINNER) {
-    console.log(`Ganador esperado por recepción confirmada: ${EXPECTED_WINNER}`);
+    console.log(
+      `Ganador esperado por recepción confirmada: ${EXPECTED_WINNER}`
+    );
   }
-  console.log(`doubleWinner: ${errors.filter(e => e.includes('adjudicó')).length}`);
-  console.log(`clientMismatch: ${errors.filter(e => e.includes('mismo ganador')).length}`);
+  console.log(
+    `doubleWinner: ${errors.filter(e => e.includes('adjudicó')).length}`
+  );
+  console.log(
+    `clientMismatch: ${errors.filter(e => e.includes('mismo ganador')).length}`
+  );
   console.log(`PASS: ${errors.length === 0 ? `${ROUNDS}/${ROUNDS}` : 'NO'}`);
 
   if (errors.length) {
@@ -401,7 +497,9 @@ function failAndExit(message) {
   process.exitCode = 1;
 }
 
-const timeout = setTimeout(() => failAndExit(`Timeout global de ${TIMEOUT_MS} ms.`), TIMEOUT_MS);
+const timeout = setTimeout(
+  () => failAndExit(`Timeout global de ${TIMEOUT_MS} ms.`), TIMEOUT_MS
+);
 timeout.unref();
 
 let serverBuffer = '';

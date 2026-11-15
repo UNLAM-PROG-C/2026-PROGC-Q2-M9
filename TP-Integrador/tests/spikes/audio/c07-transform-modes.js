@@ -101,7 +101,8 @@ function decodeToPcm(compressed) {
       if (code !== 0) {
         reject(
           new Error(
-            `FFmpeg terminó con código ${code}: ${Buffer.concat(stderr).toString('utf8')}`
+            `FFmpeg terminó con código ${code}: ` +
+            `${Buffer.concat(stderr).toString('utf8')}`
           )
         );
         return;

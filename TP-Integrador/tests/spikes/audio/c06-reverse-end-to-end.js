@@ -96,7 +96,8 @@ function decodeToPcm(compressed) {
       if (code !== 0) {
         reject(
           new Error(
-            `FFmpeg terminó con código ${code}: ${Buffer.concat(stderr).toString('utf8')}`
+            `FFmpeg terminó con código ${code}: ` +
+            `${Buffer.concat(stderr).toString('utf8')}`
           )
         );
         return;
@@ -112,7 +113,8 @@ function decodeToPcm(compressed) {
       if (pcm.length % FRAME_SIZE !== 0) {
         reject(
           new Error(
-            `PCM inválido: ${pcm.length} bytes no son múltiplo del frame size ${FRAME_SIZE}.`
+            `PCM inválido: ${pcm.length} bytes no son múltiplo ` +
+            `del frame size ${FRAME_SIZE}.`
           )
         );
         return;
@@ -139,7 +141,8 @@ function reversePcmFrames(pcm) {
   const frameCount = pcm.length / FRAME_SIZE;
   const reversed = Buffer.allocUnsafe(pcm.length);
 
-  for (let destinationFrame = 0; destinationFrame < frameCount; destinationFrame++) {
+  for (let destinationFrame = 0; destinationFrame < frameCount;
+    destinationFrame++) {
     const sourceFrame = frameCount - 1 - destinationFrame;
 
     pcm.copy(
@@ -211,7 +214,8 @@ async function main() {
 
   console.log(`[C06] PCM generado: ${pcm.length} bytes`);
   console.log(
-    `[C06] PCM: ${BITS_PER_SAMPLE}-bit LE, ${CHANNELS} canales, ${SAMPLE_RATE} Hz`
+    `[C06] PCM: ${BITS_PER_SAMPLE}-bit LE, ${CHANNELS} canales, ` +
+    `${SAMPLE_RATE} Hz`
   );
   console.log(
     `[C06] Duración aproximada: ${durationSeconds.toFixed(2)} s`
@@ -227,7 +231,8 @@ async function main() {
     `[C06] REVERSE JavaScript completado en ${(end - start).toFixed(2)} ms`
   );
   console.log(
-    '[C06] Verificación estructural PASS: se invirtieron frames completos, preservando pares L/R.'
+    '[C06] Verificación estructural PASS: se invirtieron frames completos, ' +
+    'preservando pares L/R.'
   );
 
   const wav = encodeWav(reversedPcm);

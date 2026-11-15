@@ -69,8 +69,8 @@ export default [
     rules: {
       // Estas funciones se invocan desde atributos HTML del cliente actual.
       'no-unused-vars': ['warn', {
-        varsIgnorePattern: '^(joinGame|toggleReady|leaveGame|handleInput|sendAnswer)$',
-      }],
+        varsIgnorePattern: '^(joinGame|toggleReady|leaveGame|' +
+          'handleInput|sendAnswer)$'}],
     },
   },
 ];

@@ -3,7 +3,9 @@ const path = require('path');
 
 const projectRoot = path.resolve(__dirname, '..');
 const harnessPath = path.join(__dirname, 'alt02-concurrent-answers.js');
-const rounds = Math.max(1, Number.parseInt(process.env.ALT02_MATRIX_ROUNDS || '20', 10));
+const rounds = Math.max(
+  1, Number.parseInt(process.env.ALT02_MATRIX_ROUNDS || '20', 10)
+);
 
 const scenarios = [
   {
@@ -37,7 +39,8 @@ const scenarios = [
   },
   {
     id: 'S4',
-    description: '5 clientes, C5 confirmado primero por el servidor y todos quedan en cola',
+    description: '5 clientes, C5 confirmado primero por el servidor ' +
+      'y todos quedan en cola',
     clients: 5,
     offsets: '0,0,0,0,0',
     drainDelay: 100,
@@ -54,7 +57,12 @@ console.log(`Rondas por escenario: ${rounds}`);
 
 for (const scenario of scenarios) {
   console.log(`\n=== ${scenario.id}: ${scenario.description} ===`);
-  console.log(`clientes=${scenario.clients}, offsets seguidores=${scenario.offsets} ms, drainDelay=${scenario.drainDelay} ms${scenario.leadClient ? `, lead=C${scenario.leadClient}` : ''}`);
+  console.log(
+    `clientes=${scenario.clients}, ` +
+    `offsets seguidores=${scenario.offsets} ms, ` +
+    `drainDelay=${scenario.drainDelay} ms` +
+    `${scenario.leadClient ? `, lead=C${scenario.leadClient}` : ''}`
+  );
 
   const result = spawnSync(process.execPath, [harnessPath], {
     cwd: projectRoot,
@@ -75,12 +83,17 @@ for (const scenario of scenarios) {
 
   const passed = result.status === 0;
   results.push({...scenario, passed, status: result.status});
-  console.log(`[MATRIX] ${scenario.id}: ${passed ? 'PASS' : `FAIL (exit=${result.status})`}`);
+  console.log(
+    `[MATRIX] ${scenario.id}: ` +
+    `${passed ? 'PASS' : `FAIL (exit=${result.status})`}`
+  );
 }
 
 console.log('\n=== ALT-02 MATRIZ RESULTADO ===');
 for (const result of results) {
-  console.log(`${result.id}: ${result.passed ? 'PASS' : 'FAIL'} - ${result.description}`);
+  console.log(
+    `${result.id}: ${result.passed ? 'PASS' : 'FAIL'} - ${result.description}`
+  );
 }
 
 const passedCount = results.filter(result => result.passed).length;

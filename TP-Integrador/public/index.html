@@ -332,7 +332,10 @@ let lastSessionState = null;
 let readyActionPending = false;
 
 function normalizeClientText(text) {
-  return text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  return text.toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim();
 }
 
 function joinGame() {
@@ -365,7 +368,8 @@ function joinGame() {
       songTitles = data.titles || [];
       document.getElementById('waiting-box').style.display = 'block';
       document.getElementById('waiting-msg').innerText =
-        `La partida está programada para las ${data.startTime}. También deben estar listos todos los jugadores conectados.`;
+        `La partida está programada para las ${data.startTime}. ` +
+        'También deben estar listos todos los jugadores conectados.';
       document.getElementById('ready-panel').style.display = 'block';
       startCountdown(data.secondsLeft);
     }
@@ -382,8 +386,10 @@ function joinGame() {
       document.getElementById('waiting-box').style.display = 'block';
       document.getElementById('ready-panel').style.display = 'none';
       document.getElementById('waiting-msg').innerText =
-        `La ronda ${data.currentRound} ya está en curso. Vas a ingresar desde la ronda ${data.eligibleFromRound}.`;
-      document.getElementById('countdown').innerText = 'Esperando próxima ronda';
+        `La ronda ${data.currentRound} ya está en curso. ` +
+        `Vas a ingresar desde la ronda ${data.eligibleFromRound}.`;
+      document.getElementById('countdown').innerText =
+        'Esperando próxima ronda';
     }
 
     if (data.type === 'INIT_GAME' || data.type === 'NEW_SONG') {
@@ -401,7 +407,8 @@ function joinGame() {
       if (data.titles) {
         songTitles = data.titles;
       }
-      document.getElementById('round-title').innerText = `Adivina la Canción (Ronda ${data.round}/${data.maxRounds})`;
+      document.getElementById('round-title').innerText =
+        `Adivina la Canción (Ronda ${data.round}/${data.maxRounds})`;
       document.getElementById('status').innerText = data.hint;
       const player = document.getElementById('audio-player');
       player.src = data.song;
@@ -413,7 +420,9 @@ function joinGame() {
     if (data.type === 'ROUND_WINNER') {
       document.getElementById('audio-player').pause();
       const winnerName = data.winner?.displayName || 'Nadie';
-      startRoundTransitionCountdown(data.delay, winnerName, data.songTitle, data.points);
+      startRoundTransitionCountdown(
+        data.delay, winnerName, data.songTitle, data.points
+      );
     }
 
     if (data.type === 'GAME_OVER') {
@@ -431,7 +440,7 @@ function joinGame() {
       const winnerName = data.winner?.displayName || 'Nadie';
       document.getElementById('waiting-msg').innerHTML =
         `El ganador es: ${winnerName}<br><br><b>FELICITACIONES!!!</b><br><br>` +
-                        'Esperando RESTART del operador para una nueva partida.';
+        'Esperando RESTART del operador para una nueva partida.';
       document.getElementById('countdown').innerText = '🏁 FIN';
     }
 
@@ -458,7 +467,8 @@ function joinGame() {
       document.getElementById('waiting-box').style.display = 'block';
       document.getElementById('ready-panel').style.display = 'block';
       document.getElementById('waiting-msg').innerText =
-        `Nueva partida preparada (gameId=${data.gameId}). Todos deben marcar READY nuevamente.`;
+        `Nueva partida preparada (gameId=${data.gameId}). ` +
+        'Todos deben marcar READY nuevamente.';
       document.getElementById('countdown').innerText = 'Esperando READY';
       resetRoundState();
     }
@@ -470,15 +480,19 @@ function joinGame() {
     if (data.type === 'WRONG_ANSWER') {
       addAttempt(data.guess, false, data.potentialPoints);
       currentPotentialPoints = Math.max(10, data.potentialPoints - 5);
-      document.getElementById('potential-points').innerText = `Potenciales puntos: ${currentPotentialPoints} pts`;
+      document.getElementById('potential-points').innerText =
+        `Potenciales puntos: ${currentPotentialPoints} pts`;
     }
 
-    if (data.type === 'ANSWER_REJECTED' && data.reason === 'NOT_ELIGIBLE_CURRENT_ROUND') {
+    if (data.type === 'ANSWER_REJECTED' &&
+        data.reason === 'NOT_ELIGIBLE_CURRENT_ROUND') {
       document.getElementById('waiting-msg').innerText =
-        `Todavía no participás de la ronda ${data.currentRound}. Vas a ingresar desde la ronda ${data.eligibleFromRound}.`;
+        `Todavía no participás de la ronda ${data.currentRound}. ` +
+        `Vas a ingresar desde la ronda ${data.eligibleFromRound}.`;
     }
 
-    if (data.type === 'ANSWER_REJECTED' && data.reason === 'SESSION_NOT_ACTIVE') {
+    if (data.type === 'ANSWER_REJECTED' &&
+        data.reason === 'SESSION_NOT_ACTIVE') {
       document.getElementById('status').innerText =
         `Respuesta rechazada: la sesión está en estado ${data.sessionState}.`;
     }
@@ -488,14 +502,18 @@ function joinGame() {
       list.innerHTML = '';
       const leaderboard = data.leaderboard || [];
       if (leaderboard.length === 0) {
-        list.innerHTML = '<li style="color: #777; justify-content: center;">No hay jugadores.</li>';
+        list.innerHTML =
+          '<li style="color: #777; justify-content: center;">' +
+          'No hay jugadores.</li>';
         return;
       }
-      const sortedLeaderboard = [...leaderboard].sort((a, b) => b.score - a.score);
+      const sortedLeaderboard = [...leaderboard]
+          .sort((a, b) => b.score - a.score);
       for (const player of sortedLeaderboard) {
         const li = document.createElement('li');
         li.dataset.playerId = player.playerId;
-        li.innerHTML = `<span>${player.displayName}</span> <strong>${player.score} pts</strong>`;
+        li.innerHTML = `<span>${player.displayName}</span> ` +
+          `<strong>${player.score} pts</strong>`;
         list.appendChild(li);
       }
     }
@@ -519,7 +537,8 @@ function updateSessionState(data) {
   const readyButton = document.getElementById('ready-button');
   const readyPanel = document.getElementById('ready-panel');
 
-  readySummary.innerText = `Listos: ${data.readyCount} / ${data.connectedCount}`;
+  readySummary.innerText =
+    `Listos: ${data.readyCount} / ${data.connectedCount}`;
 
   if (data.sessionState !== 'LOBBY') {
     readyPanel.style.display = 'none';
@@ -534,15 +553,18 @@ function updateSessionState(data) {
   if (data.connectedCount === 0) {
     readyDetail.innerText = 'Esperando jugadores conectados.';
   } else if (data.canStart) {
-    readyDetail.innerText = 'Todos los jugadores están listos. La partida puede comenzar.';
+    readyDetail.innerText =
+      'Todos los jugadores están listos. La partida puede comenzar.';
     document.getElementById('waiting-msg').innerText =
       'Todos están listos. Esperando que el servidor inicie la partida...';
   } else if (myReady) {
-    readyDetail.innerText = 'Vos ya estás listo. Esperando a los demás jugadores.';
+    readyDetail.innerText =
+      'Vos ya estás listo. Esperando a los demás jugadores.';
     document.getElementById('waiting-msg').innerText =
       'Esperando que todos los jugadores estén listos...';
   } else {
-    readyDetail.innerText = 'Marcá que estás listo para habilitar el inicio de la partida.';
+    readyDetail.innerText =
+      'Marcá que estás listo para habilitar el inicio de la partida.';
     document.getElementById('waiting-msg').innerText =
       'Esperando que todos los jugadores estén listos...';
   }
@@ -568,7 +590,9 @@ function toggleReady() {
   }));
 }
 
-function startRoundTransitionCountdown(totalSeconds, winner, songTitle, points) {
+function startRoundTransitionCountdown(
+  totalSeconds, winner, songTitle, points
+) {
   if (roundTimerInterval) {
     clearInterval(roundTimerInterval);
   }
@@ -582,7 +606,9 @@ function startRoundTransitionCountdown(totalSeconds, winner, songTitle, points) 
     }
 
     // Actualizar texto en el status
-    document.getElementById('status').innerText = `¡${winner} acierta! Era: "${songTitle}" (+${points} pts). Siguiente ronda en ${timeLeft}s...`;
+    document.getElementById('status').innerText =
+      `¡${winner} acierta! Era: "${songTitle}" (+${points} pts). ` +
+      `Siguiente ronda en ${timeLeft}s...`;
 
     // Si quedan 5 segundos o menos, mostrar el overlay gigante central
     const overlay = document.getElementById('sync-overlay');
@@ -617,7 +643,8 @@ function startCountdown(seconds) {
     }
     const m = Math.floor(remaining / 60);
     const s = remaining % 60;
-    document.getElementById('countdown').innerText = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    document.getElementById('countdown').innerText =
+      `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     remaining--;
   }
   updateTimer();
@@ -635,7 +662,9 @@ function handleInput() {
     return;
   }
 
-  const matches = songTitles.filter(title => normalizeClientText(title).includes(query)).slice(0, 7);
+  const matches = songTitles
+      .filter(title => normalizeClientText(title).includes(query))
+      .slice(0, 7);
 
   if (matches.length === 0) {
     container.style.display = 'none';
@@ -682,9 +711,14 @@ function addAttempt(text, isCorrect, pts) {
   }
   const li = document.createElement('li');
   if (isCorrect) {
-    li.innerHTML = `<span style="color: #2ecc71; font-weight: bold;">${text}</span> <span style="font-size:12px; color:#2ecc71;">(+${pts} pts)</span>`;
+    li.innerHTML =
+      `<span style="color: #2ecc71; font-weight: bold;">${text}</span> ` +
+      `<span style="font-size:12px; color:#2ecc71;">(+${pts} pts)</span>`;
   } else {
-    li.innerHTML = `<span style="color: #e74c3c; text-decoration: line-through;">${text}</span> <span style="font-size:11px; color:#e74c3c;">(-${pts} pts)</span>`;
+    li.innerHTML =
+      '<span style="color: #e74c3c; text-decoration: line-through;">' +
+      `${text}</span> ` +
+      `<span style="font-size:11px; color:#e74c3c;">(-${pts} pts)</span>`;
   }
   list.appendChild(li);
 
@@ -694,9 +728,11 @@ function addAttempt(text, isCorrect, pts) {
 
 function resetRoundState() {
   currentPotentialPoints = 100;
-  document.getElementById('potential-points').innerText = 'Potenciales puntos: 100 pts';
+  document.getElementById('potential-points').innerText =
+    'Potenciales puntos: 100 pts';
   const list = document.getElementById('attempts-list');
-  list.innerHTML = '<li style="color: #777; justify-content: center;">Sin intentos aún</li>';
+  list.innerHTML = '<li style="color: #777; justify-content: center;">' +
+    'Sin intentos aún</li>';
 }
 
 function leaveGame() {
@@ -722,7 +758,8 @@ function resetUI() {
   document.getElementById('waiting-box').style.display = 'none';
   document.getElementById('ready-panel').style.display = 'block';
   document.getElementById('ready-summary').innerText = 'Listos: 0 / 0';
-  document.getElementById('ready-detail').innerText = 'Marcá que estás listo para habilitar el inicio de la partida.';
+  document.getElementById('ready-detail').innerText =
+    'Marcá que estás listo para habilitar el inicio de la partida.';
   document.getElementById('ready-button').className = 'btn-primary';
   document.getElementById('ready-button').innerText = 'Estoy listo';
   document.getElementById('ready-button').disabled = false;

@@ -167,7 +167,8 @@ class SessionCoordinator {
   assertLobbyForReadyChange() {
     if (this.sessionState !== SessionState.LOBBY) {
       throw new Error(
-        `READY solo puede modificarse en LOBBY. Estado actual: ${this.sessionState}`
+        'READY solo puede modificarse en LOBBY. ' +
+        `Estado actual: ${this.sessionState}`
       );
     }
   }

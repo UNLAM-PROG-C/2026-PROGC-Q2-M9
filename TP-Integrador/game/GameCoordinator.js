@@ -36,7 +36,10 @@ class GameCoordinator {
   resetGameState() {
     this.activeRoundId = null;
     this.roundWinnerPlayerId = null;
-    this.log('[GC] Estado de juego reiniciado. activeRoundId=null, winner=null.');
+    this.log(
+      '[GC] Estado de juego reiniciado. ' +
+      'activeRoundId=null, winner=null.'
+    );
   }
 
   processAnswerEvent(answerEvent) {
@@ -46,32 +49,53 @@ class GameCoordinator {
     // Esta guarda es deliberadamente anterior a gameStarted: si una respuesta
     // quedó en cola después del primer acierto, el rechazo se explica por la
     // invariante de ganador único y no solo por el cierre genérico de la ronda.
-    if (answerEvent.roundId === this.activeRoundId && this.roundWinnerPlayerId !== null) {
-      this.log(`[GCx] ANSWER #${sequenceLabel} descartado: ronda ${answerEvent.roundId} ya adjudicada a ${this.roundWinnerPlayerId}.`);
+    if (answerEvent.roundId === this.activeRoundId &&
+        this.roundWinnerPlayerId !== null) {
+      this.log(
+        `[GCx] ANSWER #${sequenceLabel} descartado: ` +
+        `ronda ${answerEvent.roundId} ya adjudicada a ` +
+        `${this.roundWinnerPlayerId}.`
+      );
       return;
     }
 
     if (!context.gameStarted || context.gameFinished) {
-      this.log(`[GCx] ANSWER #${sequenceLabel} descartado: partida/ronda no activa.`);
+      this.log(
+        `[GCx] ANSWER #${sequenceLabel} descartado: ` +
+        'partida/ronda no activa.'
+      );
       return;
     }
 
     if (answerEvent.roundId !== context.currentRound + 1) {
-      this.log(`[GCx] ANSWER #${sequenceLabel} descartado: ronda ${answerEvent.roundId} ya no es la ronda activa ${context.currentRound + 1}.`);
+      this.log(
+        `[GCx] ANSWER #${sequenceLabel} descartado: ` +
+        `ronda ${answerEvent.roundId} ya no es la ronda activa ` +
+        `${context.currentRound + 1}.`
+      );
       return;
     }
 
     const player = this.playersById.get(answerEvent.playerId);
     if (!player) {
-      this.log(`[GCx] ANSWER #${sequenceLabel} descartado: playerId ${answerEvent.playerId} inexistente.`);
+      this.log(
+        `[GCx] ANSWER #${sequenceLabel} descartado: ` +
+        `playerId ${answerEvent.playerId} inexistente.`
+      );
       return;
     }
 
     const correctSong = context.playlist[context.currentSongIndex];
     const userAnswer = this.normalizeText(answerEvent.answer);
-    const correctNormalized = correctSong ? this.normalizeText(correctSong.title) : '';
+    const correctNormalized = correctSong
+      ? this.normalizeText(correctSong.title)
+      : '';
 
-    this.log(`[GC] ANSWER #${sequenceLabel} adjudicando para [${player.playerId} | ${player.displayName}] en ronda ${answerEvent.roundId}.`);
+    this.log(
+      `[GC] ANSWER #${sequenceLabel} adjudicando para ` +
+      `[${player.playerId} | ${player.displayName}] ` +
+      `en ronda ${answerEvent.roundId}.`
+    );
 
     if (correctSong && userAnswer === correctNormalized) {
       this.handleCorrectAnswer(answerEvent, player, correctSong, context);
@@ -85,7 +109,11 @@ class GameCoordinator {
 
     // Segunda defensa de la misma invariante dentro del punto de adjudicación.
     if (this.roundWinnerPlayerId !== null) {
-      this.log(`[GCx] ANSWER #${sequenceLabel} descartado: ya existe ganador ${this.roundWinnerPlayerId} para la ronda ${answerEvent.roundId}.`);
+      this.log(
+        `[GCx] ANSWER #${sequenceLabel} descartado: ` +
+        `ya existe ganador ${this.roundWinnerPlayerId} ` +
+        `para la ronda ${answerEvent.roundId}.`
+      );
       return;
     }
 
@@ -93,12 +121,20 @@ class GameCoordinator {
     // Como existe un único consumidor, esta asignación define el punto de
     // adjudicación autoritativo de la ronda.
     this.roundWinnerPlayerId = player.playerId;
-    this.log(`[GC✓] Ronda ${answerEvent.roundId} adjudicada a [${player.playerId} | ${player.displayName}] por ANSWER #${sequenceLabel}.`);
+    this.log(
+      `[GC✓] Ronda ${answerEvent.roundId} adjudicada a ` +
+      `[${player.playerId} | ${player.displayName}] ` +
+      `por ANSWER #${sequenceLabel}.`
+    );
 
     const pointsWon = Math.max(10, 100 - (player.attempts * 5));
     player.score += pointsWon;
 
-    this.log(`[✓] [${player.playerId} | ${player.displayName}] acertó la canción "${correctSong.title}" y sumó ${pointsWon} pts. Total: ${player.score}.`);
+    this.log(
+      `[✓] [${player.playerId} | ${player.displayName}] ` +
+      `acertó la canción "${correctSong.title}" y sumó ` +
+      `${pointsWon} pts. Total: ${player.score}.`
+    );
 
     this.broadcastLeaderboard();
 
@@ -131,7 +167,11 @@ class GameCoordinator {
     player.attempts += 1;
     const potentialPoints = Math.max(10, 100 - ((player.attempts - 1) * 5));
 
-    this.log(`[✗] [${player.playerId} | ${player.displayName}] hizo un intento erróneo: "${answerEvent.answer}". Intentos: ${player.attempts}.`);
+    this.log(
+      `[✗] [${player.playerId} | ${player.displayName}] ` +
+      `hizo un intento erróneo: "${answerEvent.answer}". ` +
+      `Intentos: ${player.attempts}.`
+    );
 
     this.sendToPlayer(player.playerId, {
       type: 'WRONG_ANSWER',

@@ -87,7 +87,8 @@ function decodeToPcm(inputBytes) {
       if (code !== 0) {
         reject(
           new Error(
-            `FFmpeg terminó con código ${code}: ${Buffer.concat(errors).toString('utf8')}`
+            `FFmpeg terminó con código ${code}: ` +
+            `${Buffer.concat(errors).toString('utf8')}`
           )
         );
         return;
@@ -122,7 +123,8 @@ async function main() {
 
   console.log(`[C03] PCM generado: ${pcm.length} bytes`);
   console.log(
-    `[C03] Formato PCM: signed 16-bit little-endian, ${channels} canales, ${sampleRate} Hz`
+    `[C03] Formato PCM: signed 16-bit little-endian, ${channels} canales, ` +
+    `${sampleRate} Hz`
   );
   console.log(
     `[C03] Duración PCM aproximada: ${durationSeconds.toFixed(2)} s`
