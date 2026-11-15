@@ -320,380 +320,533 @@
     </div>
 
     <script>
-        let ws;
-        let myUsername = "";
-        let songTitles = [];
-        let currentPotentialPoints = 100;
-        let countdownInterval = null;
-        let roundTimerInterval = null;
-        let myPlayerId = null;
-        let myReady = false;
-        let lastSessionState = null;
-        let readyActionPending = false;
+/**
+ * @fileoverview Cliente web: estado local, protocolo WebSocket y presentación.
+ * El servidor decide la elegibilidad, los ganadores y el inicio de rondas.
+ * Los timers son visuales; el navegador solicita la reproducción del preview
+ * recibido, sin barrera de audio ni sincronización temporal entre clientes.
+ */
+let ws;
+let myUsername = '';
+let songTitles = [];
+let currentPotentialPoints = 100;
+let countdownInterval = null;
+let roundTimerInterval = null;
+let myPlayerId = null;
+let myReady = false;
+let lastSessionState = null;
+let readyActionPending = false;
 
-        function normalizeClientText(text) {
-            return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-        }
+/**
+ * Normaliza las búsquedas de títulos para el autocompletado.
+ * @param {string} text Texto de búsqueda o título.
+ * @return {string} Texto en minúsculas sin marcas diacríticas indicadas.
+ */
+function normalizeClientText(text) {
+  return text.toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim();
+}
 
-        function joinGame() {
-            myUsername = document.getElementById('username').value.trim();
-            if (!myUsername) return alert("Por favor ingresá un nombre.");
+/**
+ * Lee el nombre visible, abre un WebSocket y registra sus handlers.
+ * Envía JOIN al abrir la conexión. Los mensajes del servidor actualizan
+ * identidad, READY, rondas, intentos, puntajes y reproducción de audio.
+ * No confirma el instante efectivo en que empieza a sonar cada preview.
+ */
+function joinGame() {
+  myUsername = document.getElementById('username').value.trim();
+  if (!myUsername) {
+    return alert('Por favor ingresá un nombre.');
+  }
 
-            document.getElementById('login-box').style.display = 'none';
+  document.getElementById('login-box').style.display = 'none';
 
-            ws = new WebSocket('ws://' + window.location.host);
+  ws = new WebSocket('ws://' + window.location.host);
 
-            ws.onopen = () => {
-                ws.send(JSON.stringify({ type: 'JOIN', username: myUsername }));
-            };
+  ws.onopen = () => {
+    ws.send(JSON.stringify({type: 'JOIN', username: myUsername}));
+  };
 
-            ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
 
-                if (data.type === 'PLAYER_REGISTERED') {
-                    myPlayerId = data.playerId || null;
-                    myUsername = data.displayName || myUsername;
-                }
+    if (data.type === 'PLAYER_REGISTERED') {
+      myPlayerId = data.playerId || null;
+      myUsername = data.displayName || myUsername;
+    }
 
-                if (data.type === 'SESSION_STATE') {
-                    updateSessionState(data);
-                }
+    if (data.type === 'SESSION_STATE') {
+      updateSessionState(data);
+    }
 
-                if (data.type === 'WAITING_START') {
-                    songTitles = data.titles || [];
-                    document.getElementById('waiting-box').style.display = 'block';
-                    document.getElementById('waiting-msg').innerText =
-                        `La partida está programada para las ${data.startTime}. También deben estar listos todos los jugadores conectados.`;
-                    document.getElementById('ready-panel').style.display = 'block';
-                    startCountdown(data.secondsLeft);
-                }
+    if (data.type === 'WAITING_START') {
+      songTitles = data.titles || [];
+      document.getElementById('waiting-box').style.display = 'block';
+      document.getElementById('waiting-msg').innerText =
+        `La partida está programada para las ${data.startTime}. ` +
+        'También deben estar listos todos los jugadores conectados.';
+      document.getElementById('ready-panel').style.display = 'block';
+      startCountdown(data.secondsLeft);
+    }
 
-                if (data.type === 'WAITING_NEXT_ROUND') {
-                    songTitles = data.titles || [];
-                    if (countdownInterval) clearInterval(countdownInterval);
-                    if (roundTimerInterval) clearInterval(roundTimerInterval);
-                    document.getElementById('game-container').style.display = 'none';
-                    document.getElementById('waiting-box').style.display = 'block';
-                    document.getElementById('ready-panel').style.display = 'none';
-                    document.getElementById('waiting-msg').innerText =
-                        `La ronda ${data.currentRound} ya está en curso. Vas a ingresar desde la ronda ${data.eligibleFromRound}.`;
-                    document.getElementById('countdown').innerText = 'Esperando próxima ronda';
-                }
+    if (data.type === 'WAITING_NEXT_ROUND') {
+      songTitles = data.titles || [];
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+      }
+      if (roundTimerInterval) {
+        clearInterval(roundTimerInterval);
+      }
+      document.getElementById('game-container').style.display = 'none';
+      document.getElementById('waiting-box').style.display = 'block';
+      document.getElementById('ready-panel').style.display = 'none';
+      document.getElementById('waiting-msg').innerText =
+        `La ronda ${data.currentRound} ya está en curso. ` +
+        `Vas a ingresar desde la ronda ${data.eligibleFromRound}.`;
+      document.getElementById('countdown').innerText =
+        'Esperando próxima ronda';
+    }
 
-                if (data.type === 'INIT_GAME' || data.type === 'NEW_SONG') {
-                    if (countdownInterval) clearInterval(countdownInterval);
-                    if (roundTimerInterval) clearInterval(roundTimerInterval);
-                    document.getElementById('sync-overlay').style.display = 'none';
-                    document.getElementById('waiting-box').style.display = 'none';
-                    document.getElementById('ready-panel').style.display = 'none';
-                    document.getElementById('game-container').style.display = 'grid';
+    /**
+     * Inicia la vista de ronda y solicita play() al reproductor local.
+     * La resolución de play depende del navegador, la carga y sus políticas;
+     * recibir el mismo mensaje no garantiza reproducción simultánea.
+     */
+    if (data.type === 'INIT_GAME' || data.type === 'NEW_SONG') {
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+      }
+      if (roundTimerInterval) {
+        clearInterval(roundTimerInterval);
+      }
+      document.getElementById('sync-overlay').style.display = 'none';
+      document.getElementById('waiting-box').style.display = 'none';
+      document.getElementById('ready-panel').style.display = 'none';
+      document.getElementById('game-container').style.display = 'grid';
 
-                    if (data.titles) songTitles = data.titles;
-                    document.getElementById('round-title').innerText = `Adivina la Canción (Ronda ${data.round}/${data.maxRounds})`;
-                    document.getElementById('status').innerText = data.hint;
-                    const player = document.getElementById('audio-player');
-                    player.src = data.song;
-                    player.style.display = 'block';
-                    player.play().catch(e => console.log("Autoplay bloqueado", e));
-                    resetRoundState();
-                }
+      if (data.titles) {
+        songTitles = data.titles;
+      }
+      document.getElementById('round-title').innerText =
+        `Adivina la Canción (Ronda ${data.round}/${data.maxRounds})`;
+      document.getElementById('status').innerText = data.hint;
+      const player = document.getElementById('audio-player');
+      player.src = data.song;
+      player.style.display = 'block';
+      player.play().catch(e => console.log('Autoplay bloqueado', e));
+      resetRoundState();
+    }
 
-                if (data.type === 'ROUND_WINNER') {
-                    document.getElementById('audio-player').pause();
-                    const winnerName = data.winner?.displayName || 'Nadie';
-                    startRoundTransitionCountdown(data.delay, winnerName, data.songTitle, data.points);
-                }
+    if (data.type === 'ROUND_WINNER') {
+      document.getElementById('audio-player').pause();
+      const winnerName = data.winner?.displayName || 'Nadie';
+      startRoundTransitionCountdown(
+        data.delay, winnerName, data.songTitle, data.points
+      );
+    }
 
-                if (data.type === 'GAME_OVER') {
-                    if (countdownInterval) clearInterval(countdownInterval);
-                    if (roundTimerInterval) clearInterval(roundTimerInterval);
-                    document.getElementById('audio-player').pause();
-                    document.getElementById('sync-overlay').style.display = 'none';
-                    document.getElementById('game-container').style.display = 'none';
-                    document.getElementById('waiting-box').style.display = 'block';
-                    document.getElementById('ready-panel').style.display = 'none';
-                    const winnerName = data.winner?.displayName || 'Nadie';
-                    document.getElementById('waiting-msg').innerHTML =
-                        `El ganador es: ${winnerName}<br><br><b>FELICITACIONES!!!</b><br><br>` +
-                        `Esperando RESTART del operador para una nueva partida.`;
-                    document.getElementById('countdown').innerText = "🏁 FIN";
-                }
+    if (data.type === 'GAME_OVER') {
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+      }
+      if (roundTimerInterval) {
+        clearInterval(roundTimerInterval);
+      }
+      document.getElementById('audio-player').pause();
+      document.getElementById('sync-overlay').style.display = 'none';
+      document.getElementById('game-container').style.display = 'none';
+      document.getElementById('waiting-box').style.display = 'block';
+      document.getElementById('ready-panel').style.display = 'none';
+      const winnerName = data.winner?.displayName || 'Nadie';
+      document.getElementById('waiting-msg').innerHTML =
+        `El ganador es: ${winnerName}<br><br><b>FELICITACIONES!!!</b><br><br>` +
+        'Esperando RESTART del operador para una nueva partida.';
+      document.getElementById('countdown').innerText = '🏁 FIN';
+    }
 
-                if (data.type === 'GAME_RESET') {
-                    if (countdownInterval) clearInterval(countdownInterval);
-                    if (roundTimerInterval) clearInterval(roundTimerInterval);
+    if (data.type === 'GAME_RESET') {
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+      }
+      if (roundTimerInterval) {
+        clearInterval(roundTimerInterval);
+      }
 
-                    const audioPlayer = document.getElementById('audio-player');
-                    audioPlayer.pause();
-                    audioPlayer.removeAttribute('src');
-                    audioPlayer.load();
-                    audioPlayer.style.display = 'none';
+      const audioPlayer = document.getElementById('audio-player');
+      audioPlayer.pause();
+      audioPlayer.removeAttribute('src');
+      audioPlayer.load();
+      audioPlayer.style.display = 'none';
 
-                    myReady = false;
-                    readyActionPending = false;
-                    songTitles = data.titles || songTitles;
+      myReady = false;
+      readyActionPending = false;
+      songTitles = data.titles || songTitles;
 
-                    document.getElementById('sync-overlay').style.display = 'none';
-                    document.getElementById('game-container').style.display = 'none';
-                    document.getElementById('waiting-box').style.display = 'block';
-                    document.getElementById('ready-panel').style.display = 'block';
-                    document.getElementById('waiting-msg').innerText =
-                        `Nueva partida preparada (gameId=${data.gameId}). Todos deben marcar READY nuevamente.`;
-                    document.getElementById('countdown').innerText = 'Esperando READY';
-                    resetRoundState();
-                }
+      document.getElementById('sync-overlay').style.display = 'none';
+      document.getElementById('game-container').style.display = 'none';
+      document.getElementById('waiting-box').style.display = 'block';
+      document.getElementById('ready-panel').style.display = 'block';
+      document.getElementById('waiting-msg').innerText =
+        `Nueva partida preparada (gameId=${data.gameId}). ` +
+        'Todos deben marcar READY nuevamente.';
+      document.getElementById('countdown').innerText = 'Esperando READY';
+      resetRoundState();
+    }
 
-                if (data.type === 'CORRECT_ANSWER') {
-                    addAttempt(data.guess, true, data.points);
-                }
+    if (data.type === 'CORRECT_ANSWER') {
+      addAttempt(data.guess, true, data.points);
+    }
 
-                if (data.type === 'WRONG_ANSWER') {
-                    addAttempt(data.guess, false, data.potentialPoints);
-                    currentPotentialPoints = Math.max(10, data.potentialPoints - 5);
-                    document.getElementById('potential-points').innerText = `Potenciales puntos: ${currentPotentialPoints} pts`;
-                }
+    if (data.type === 'WRONG_ANSWER') {
+      addAttempt(data.guess, false, data.potentialPoints);
+      currentPotentialPoints = Math.max(10, data.potentialPoints - 5);
+      document.getElementById('potential-points').innerText =
+        `Potenciales puntos: ${currentPotentialPoints} pts`;
+    }
 
-                if (data.type === 'ANSWER_REJECTED' && data.reason === 'NOT_ELIGIBLE_CURRENT_ROUND') {
-                    document.getElementById('waiting-msg').innerText =
-                        `Todavía no participás de la ronda ${data.currentRound}. Vas a ingresar desde la ronda ${data.eligibleFromRound}.`;
-                }
+    if (data.type === 'ANSWER_REJECTED' &&
+        data.reason === 'NOT_ELIGIBLE_CURRENT_ROUND') {
+      document.getElementById('waiting-msg').innerText =
+        `Todavía no participás de la ronda ${data.currentRound}. ` +
+        `Vas a ingresar desde la ronda ${data.eligibleFromRound}.`;
+    }
 
-                if (data.type === 'ANSWER_REJECTED' && data.reason === 'SESSION_NOT_ACTIVE') {
-                    document.getElementById('status').innerText =
-                        `Respuesta rechazada: la sesión está en estado ${data.sessionState}.`;
-                }
+    if (data.type === 'ANSWER_REJECTED' &&
+        data.reason === 'SESSION_NOT_ACTIVE') {
+      document.getElementById('status').innerText =
+        `Respuesta rechazada: la sesión está en estado ${data.sessionState}.`;
+    }
 
-                if (data.type === 'UPDATE_LEADERBOARD') {
-                    const list = document.getElementById('score-list');
-                    list.innerHTML = '';
-                    const leaderboard = data.leaderboard || [];
-                    if (leaderboard.length === 0) {
-                        list.innerHTML = '<li style="color: #777; justify-content: center;">No hay jugadores.</li>';
-                        return;
-                    }
-                    const sortedLeaderboard = [...leaderboard].sort((a, b) => b.score - a.score);
-                    for (const player of sortedLeaderboard) {
-                        let li = document.createElement('li');
-                        li.dataset.playerId = player.playerId;
-                        li.innerHTML = `<span>${player.displayName}</span> <strong>${player.score} pts</strong>`;
-                        list.appendChild(li);
-                    }
-                }
-            };
+    if (data.type === 'UPDATE_LEADERBOARD') {
+      const list = document.getElementById('score-list');
+      list.innerHTML = '';
+      const leaderboard = data.leaderboard || [];
+      if (leaderboard.length === 0) {
+        list.innerHTML =
+          '<li style="color: #777; justify-content: center;">' +
+          'No hay jugadores.</li>';
+        return;
+      }
+      const sortedLeaderboard = [...leaderboard]
+          .sort((a, b) => b.score - a.score);
+      for (const player of sortedLeaderboard) {
+        const li = document.createElement('li');
+        li.dataset.playerId = player.playerId;
+        li.innerHTML = `<span>${player.displayName}</span> ` +
+          `<strong>${player.score} pts</strong>`;
+        list.appendChild(li);
+      }
+    }
+  };
 
-            ws.onclose = () => {
-                resetUI();
-            };
-        }
+  ws.onclose = () => {
+    resetUI();
+  };
+}
 
-        function updateSessionState(data) {
-            lastSessionState = data;
-            readyActionPending = false;
+/**
+ * Actualiza la vista READY a partir del estado recibido del servidor.
+ * Libera el indicador de acción pendiente y deriva myReady del ID propio.
+ * No inicia la partida localmente aunque canStart sea true.
+ * @param {!Object} data Mensaje SESSION_STATE del servidor.
+ */
+function updateSessionState(data) {
+  lastSessionState = data;
+  readyActionPending = false;
 
-            if (myPlayerId) {
-                myReady = (data.readyPlayerIds || []).includes(myPlayerId);
-            }
+  if (myPlayerId) {
+    myReady = (data.readyPlayerIds || []).includes(myPlayerId);
+  }
 
-            const readySummary = document.getElementById('ready-summary');
-            const readyDetail = document.getElementById('ready-detail');
-            const readyButton = document.getElementById('ready-button');
-            const readyPanel = document.getElementById('ready-panel');
+  const readySummary = document.getElementById('ready-summary');
+  const readyDetail = document.getElementById('ready-detail');
+  const readyButton = document.getElementById('ready-button');
+  const readyPanel = document.getElementById('ready-panel');
 
-            readySummary.innerText = `Listos: ${data.readyCount} / ${data.connectedCount}`;
+  readySummary.innerText =
+    `Listos: ${data.readyCount} / ${data.connectedCount}`;
 
-            if (data.sessionState !== 'LOBBY') {
-                readyPanel.style.display = 'none';
-                return;
-            }
+  if (data.sessionState !== 'LOBBY') {
+    readyPanel.style.display = 'none';
+    return;
+  }
 
-            readyPanel.style.display = 'block';
-            readyButton.disabled = false;
-            readyButton.className = myReady ? 'btn-danger' : 'btn-primary';
-            readyButton.innerText = myReady ? 'Ya no estoy listo' : 'Estoy listo';
+  readyPanel.style.display = 'block';
+  readyButton.disabled = false;
+  readyButton.className = myReady ? 'btn-danger' : 'btn-primary';
+  readyButton.innerText = myReady ? 'Ya no estoy listo' : 'Estoy listo';
 
-            if (data.connectedCount === 0) {
-                readyDetail.innerText = 'Esperando jugadores conectados.';
-            } else if (data.canStart) {
-                readyDetail.innerText = 'Todos los jugadores están listos. La partida puede comenzar.';
-                document.getElementById('waiting-msg').innerText =
-                    'Todos están listos. Esperando que el servidor inicie la partida...';
-            } else if (myReady) {
-                readyDetail.innerText = 'Vos ya estás listo. Esperando a los demás jugadores.';
-                document.getElementById('waiting-msg').innerText =
-                    'Esperando que todos los jugadores estén listos...';
-            } else {
-                readyDetail.innerText = 'Marcá que estás listo para habilitar el inicio de la partida.';
-                document.getElementById('waiting-msg').innerText =
-                    'Esperando que todos los jugadores estén listos...';
-            }
-        }
+  if (data.connectedCount === 0) {
+    readyDetail.innerText = 'Esperando jugadores conectados.';
+  } else if (data.canStart) {
+    readyDetail.innerText =
+      'Todos los jugadores están listos. La partida puede comenzar.';
+    document.getElementById('waiting-msg').innerText =
+      'Todos están listos. Esperando que el servidor inicie la partida...';
+  } else if (myReady) {
+    readyDetail.innerText =
+      'Vos ya estás listo. Esperando a los demás jugadores.';
+    document.getElementById('waiting-msg').innerText =
+      'Esperando que todos los jugadores estén listos...';
+  } else {
+    readyDetail.innerText =
+      'Marcá que estás listo para habilitar el inicio de la partida.';
+    document.getElementById('waiting-msg').innerText =
+      'Esperando que todos los jugadores estén listos...';
+  }
+}
 
-        function toggleReady() {
-            if (!ws || ws.readyState !== WebSocket.OPEN) return;
-            if (!lastSessionState || lastSessionState.sessionState !== 'LOBBY') return;
-            if (readyActionPending) return;
+/**
+ * Solicita READY o UNREADY solo con conexión abierta y sesión LOBBY.
+ * Deshabilita el control hasta recibir el próximo estado de sesión.
+ */
+function toggleReady() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    return;
+  }
+  if (!lastSessionState || lastSessionState.sessionState !== 'LOBBY') {
+    return;
+  }
+  if (readyActionPending) {
+    return;
+  }
 
-            readyActionPending = true;
-            const button = document.getElementById('ready-button');
-            button.disabled = true;
+  readyActionPending = true;
+  const button = document.getElementById('ready-button');
+  button.disabled = true;
 
-            ws.send(JSON.stringify({
-                type: myReady ? 'UNREADY' : 'READY'
-            }));
-        }
+  ws.send(JSON.stringify({
+    type: myReady ? 'UNREADY' : 'READY',
+  }));
+}
 
-        function startRoundTransitionCountdown(totalSeconds, winner, songTitle, points) {
-            if (roundTimerInterval) clearInterval(roundTimerInterval);
-            let timeLeft = totalSeconds;
+/**
+ * Muestra la espera visual antes de la siguiente ronda.
+ * El inicio efectivo depende del mensaje del servidor, no de este intervalo.
+ * @param {number} totalSeconds Demora anunciada en segundos.
+ * @param {string} winner Nombre visible del ganador de la ronda.
+ * @param {string} songTitle Título revelado de la canción.
+ * @param {number} points Puntos adjudicados en la ronda.
+ */
+function startRoundTransitionCountdown(
+  totalSeconds, winner, songTitle, points
+) {
+  if (roundTimerInterval) {
+    clearInterval(roundTimerInterval);
+  }
+  let timeLeft = totalSeconds;
 
-            function updateUI() {
-                if (timeLeft <= 0) {
-                    clearInterval(roundTimerInterval);
-                    document.getElementById('sync-overlay').style.display = 'none';
-                    return;
-                }
+  /**
+   * Actualiza el contador visual y el overlay; no inicia otra ronda.
+   */
+  function updateUI() {
+    if (timeLeft <= 0) {
+      clearInterval(roundTimerInterval);
+      document.getElementById('sync-overlay').style.display = 'none';
+      return;
+    }
 
-                // Actualizar texto en el status
-                document.getElementById('status').innerText = `¡${winner} acierta! Era: "${songTitle}" (+${points} pts). Siguiente ronda en ${timeLeft}s...`;
+    // Actualizar texto en el status
+    document.getElementById('status').innerText =
+      `¡${winner} acierta! Era: "${songTitle}" (+${points} pts). ` +
+      `Siguiente ronda en ${timeLeft}s...`;
 
-                // Si quedan 5 segundos o menos, mostrar el overlay gigante central
-                const overlay = document.getElementById('sync-overlay');
-                const numEl = document.getElementById('sync-number');
-                if (timeLeft <= 5) {
-                    overlay.style.display = 'flex';
-                    numEl.innerText = timeLeft;
-                } else {
-                    overlay.style.display = 'none';
-                }
+    // Si quedan 5 segundos o menos, mostrar el overlay gigante central
+    const overlay = document.getElementById('sync-overlay');
+    const numEl = document.getElementById('sync-number');
+    if (timeLeft <= 5) {
+      overlay.style.display = 'flex';
+      numEl.innerText = timeLeft;
+    } else {
+      overlay.style.display = 'none';
+    }
 
-                timeLeft--;
-            }
+    timeLeft--;
+  }
 
-            updateUI();
-            roundTimerInterval = setInterval(updateUI, 1000);
-        }
+  updateUI();
+  roundTimerInterval = setInterval(updateUI, 1000);
+}
 
-        function startCountdown(seconds) {
-            if (countdownInterval) clearInterval(countdownInterval);
-            let remaining = seconds;
-            
-            function updateTimer() {
-                if (remaining <= 0) {
-                    const canStart = lastSessionState && lastSessionState.canStart;
-                    document.getElementById('countdown').innerText =
-                        canStart ? '¡Listos! Esperando inicio...' : 'Esperando READY';
-                    clearInterval(countdownInterval);
-                    return;
-                }
-                let m = Math.floor(remaining / 60);
-                let s = remaining % 60;
-                document.getElementById('countdown').innerText = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-                remaining--;
-            }
-            updateTimer();
-            countdownInterval = setInterval(updateTimer, 1000);
-        }
+/**
+ * Muestra la cuenta regresiva local hasta el horario de inicio.
+ * Al llegar a cero informa la espera de READY o del servidor.
+ * @param {number} seconds Segundos restantes anunciados por el servidor.
+ */
+function startCountdown(seconds) {
+  if (countdownInterval) {
+    clearInterval(countdownInterval);
+  }
+  let remaining = seconds;
 
-        function handleInput() {
-            const queryRaw = document.getElementById('answer').value;
-            const query = normalizeClientText(queryRaw);
-            const container = document.getElementById('suggestions-list');
-            container.innerHTML = '';
+  /**
+   * Actualiza la representación minutos:segundos del contador local.
+   */
+  function updateTimer() {
+    if (remaining <= 0) {
+      const canStart = lastSessionState && lastSessionState.canStart;
+      document.getElementById('countdown').innerText =
+        canStart ? '¡Listos! Esperando inicio...' : 'Esperando READY';
+      clearInterval(countdownInterval);
+      return;
+    }
+    const m = Math.floor(remaining / 60);
+    const s = remaining % 60;
+    document.getElementById('countdown').innerText =
+      `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    remaining--;
+  }
+  updateTimer();
+  countdownInterval = setInterval(updateTimer, 1000);
+}
 
-            if (query.length === 0) {
-                container.style.display = 'none';
-                return;
-            }
+/**
+ * Genera hasta siete sugerencias locales por coincidencia de subcadena.
+ * Seleccionar una sugerencia completa el campo, pero no envía la respuesta.
+ */
+function handleInput() {
+  const queryRaw = document.getElementById('answer').value;
+  const query = normalizeClientText(queryRaw);
+  const container = document.getElementById('suggestions-list');
+  container.innerHTML = '';
 
-            const matches = songTitles.filter(title => normalizeClientText(title).includes(query)).slice(0, 7);
+  if (query.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
 
-            if (matches.length === 0) {
-                container.style.display = 'none';
-                return;
-            }
+  const matches = songTitles
+      .filter(title => normalizeClientText(title).includes(query))
+      .slice(0, 7);
 
-            matches.forEach(match => {
-                const div = document.createElement('div');
-                div.className = 'suggestion-item';
-                div.innerText = match;
-                div.onmousedown = (e) => {
-                    e.preventDefault();
-                    document.getElementById('answer').value = match;
-                    container.style.display = 'none';
-                };
-                container.appendChild(div);
-            });
+  if (matches.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
 
-            container.style.display = 'block';
-        }
+  matches.forEach(match => {
+    const div = document.createElement('div');
+    div.className = 'suggestion-item';
+    div.innerText = match;
+    div.onmousedown = (e) => {
+      e.preventDefault();
+      document.getElementById('answer').value = match;
+      container.style.display = 'none';
+    };
+    container.appendChild(div);
+  });
 
-        document.getElementById('answer').addEventListener('blur', () => {
-            setTimeout(() => {
-                document.getElementById('suggestions-list').style.display = 'none';
-            }, 200);
-        });
+  container.style.display = 'block';
+}
 
-        function sendAnswer() {
-            const ansField = document.getElementById('answer');
-            const answer = ansField.value.trim();
-            if (!answer) return;
+document.getElementById('answer').addEventListener('blur', () => {
+  setTimeout(() => {
+    document.getElementById('suggestions-list').style.display = 'none';
+  }, 200);
+});
 
-            ws.send(JSON.stringify({ type: 'ANSWER', answer: answer }));
-            ansField.value = '';
-            document.getElementById('suggestions-list').style.display = 'none';
-        }
+/**
+ * Envía ANSWER con el texto recortado si no está vacío y limpia el campo.
+ * No valida la respuesta ni comprueba aquí que el socket esté abierto;
+ * la adjudicación y elegibilidad son responsabilidad del servidor.
+ */
+function sendAnswer() {
+  const ansField = document.getElementById('answer');
+  const answer = ansField.value.trim();
+  if (!answer) {
+    return;
+  }
 
-        function addAttempt(text, isCorrect, pts) {
-            const list = document.getElementById('attempts-list');
-            if (list.querySelector("li[style*='color: #777']")) {
-                list.innerHTML = '';
-            }
-            const li = document.createElement('li');
-            if (isCorrect) {
-                li.innerHTML = `<span style="color: #2ecc71; font-weight: bold;">${text}</span> <span style="font-size:12px; color:#2ecc71;">(+${pts} pts)</span>`;
-            } else {
-                li.innerHTML = `<span style="color: #e74c3c; text-decoration: line-through;">${text}</span> <span style="font-size:11px; color:#e74c3c;">(-${pts} pts)</span>`;
-            }
-            list.appendChild(li);
-            
-            const box = document.getElementById('attempts-box');
-            box.scrollTop = box.scrollHeight;
-        }
+  ws.send(JSON.stringify({type: 'ANSWER', answer: answer}));
+  ansField.value = '';
+  document.getElementById('suggestions-list').style.display = 'none';
+}
 
-        function resetRoundState() {
-            currentPotentialPoints = 100;
-            document.getElementById('potential-points').innerText = `Potenciales puntos: 100 pts`;
-            const list = document.getElementById('attempts-list');
-            list.innerHTML = '<li style="color: #777; justify-content: center;">Sin intentos aún</li>';
-        }
+/**
+ * Agrega un intento a la vista y desplaza el historial al último elemento.
+ * No adjudica puntos: los datos proceden del mensaje recibido.
+ * @param {string} text Respuesta a mostrar.
+ * @param {boolean} isCorrect Indica si el intento fue correcto.
+ * @param {number} pts Puntos recibidos para la presentación del intento.
+ */
+function addAttempt(text, isCorrect, pts) {
+  const list = document.getElementById('attempts-list');
+  if (list.querySelector("li[style*='color: #777']")) {
+    list.innerHTML = '';
+  }
+  const li = document.createElement('li');
+  if (isCorrect) {
+    li.innerHTML =
+      `<span style="color: #2ecc71; font-weight: bold;">${text}</span> ` +
+      `<span style="font-size:12px; color:#2ecc71;">(+${pts} pts)</span>`;
+  } else {
+    li.innerHTML =
+      '<span style="color: #e74c3c; text-decoration: line-through;">' +
+      `${text}</span> ` +
+      `<span style="font-size:11px; color:#e74c3c;">(-${pts} pts)</span>`;
+  }
+  list.appendChild(li);
 
-        function leaveGame() {
-            if (ws) ws.close();
-            resetUI();
-        }
+  const box = document.getElementById('attempts-box');
+  box.scrollTop = box.scrollHeight;
+}
 
-        function resetUI() {
-            if (countdownInterval) clearInterval(countdownInterval);
-            if (roundTimerInterval) clearInterval(roundTimerInterval);
-            myPlayerId = null;
-            myReady = false;
-            lastSessionState = null;
-            readyActionPending = false;
-            document.getElementById('sync-overlay').style.display = 'none';
-            document.getElementById('game-container').style.display = 'none';
-            document.getElementById('waiting-box').style.display = 'none';
-            document.getElementById('ready-panel').style.display = 'block';
-            document.getElementById('ready-summary').innerText = 'Listos: 0 / 0';
-            document.getElementById('ready-detail').innerText = 'Marcá que estás listo para habilitar el inicio de la partida.';
-            document.getElementById('ready-button').className = 'btn-primary';
-            document.getElementById('ready-button').innerText = 'Estoy listo';
-            document.getElementById('ready-button').disabled = false;
-            document.getElementById('login-box').style.display = 'block';
-            document.getElementById('audio-player').pause();
-            document.getElementById('audio-player').style.display = 'none';
-            document.getElementById('username').value = '';
-            resetRoundState();
-        }
+/**
+ * Restaura el contador de puntos potenciales y el historial visual local.
+ * No modifica los puntajes ni los intentos almacenados en el servidor.
+ */
+function resetRoundState() {
+  currentPotentialPoints = 100;
+  document.getElementById('potential-points').innerText =
+    'Potenciales puntos: 100 pts';
+  const list = document.getElementById('attempts-list');
+  list.innerHTML = '<li style="color: #777; justify-content: center;">' +
+    'Sin intentos aún</li>';
+}
+
+/**
+ * Solicita el cierre del socket, si existe, y restaura la interfaz.
+ */
+function leaveGame() {
+  if (ws) {
+    ws.close();
+  }
+  resetUI();
+}
+
+/**
+ * Detiene los intervalos locales, pausa el audio y restablece el ingreso.
+ * Limpia la identidad y READY locales; no reinicia la sesión del servidor.
+ */
+function resetUI() {
+  if (countdownInterval) {
+    clearInterval(countdownInterval);
+  }
+  if (roundTimerInterval) {
+    clearInterval(roundTimerInterval);
+  }
+  myPlayerId = null;
+  myReady = false;
+  lastSessionState = null;
+  readyActionPending = false;
+  document.getElementById('sync-overlay').style.display = 'none';
+  document.getElementById('game-container').style.display = 'none';
+  document.getElementById('waiting-box').style.display = 'none';
+  document.getElementById('ready-panel').style.display = 'block';
+  document.getElementById('ready-summary').innerText = 'Listos: 0 / 0';
+  document.getElementById('ready-detail').innerText =
+    'Marcá que estás listo para habilitar el inicio de la partida.';
+  document.getElementById('ready-button').className = 'btn-primary';
+  document.getElementById('ready-button').innerText = 'Estoy listo';
+  document.getElementById('ready-button').disabled = false;
+  document.getElementById('login-box').style.display = 'block';
+  document.getElementById('audio-player').pause();
+  document.getElementById('audio-player').style.display = 'none';
+  document.getElementById('username').value = '';
+  resetRoundState();
+}
     </script>
 </body>
 </html>
