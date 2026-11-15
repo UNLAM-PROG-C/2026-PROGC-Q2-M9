@@ -1,4 +1,4 @@
-const {isValidAudioMode} = require('./AudioMode');
+const {isValidAudioMode} = require('./audio-mode');
 
 class AudioResult {
   constructor({

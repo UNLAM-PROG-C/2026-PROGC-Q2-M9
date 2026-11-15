@@ -1,4 +1,4 @@
-const {AudioMode, isValidAudioMode} = require('../model/AudioMode');
+const {AudioMode, isValidAudioMode} = require('../model/audio-mode');
 
 const DEFAULT_LOW_PASS_CUTOFF_HZ = 1200;
 

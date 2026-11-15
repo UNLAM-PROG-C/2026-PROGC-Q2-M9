@@ -5,11 +5,11 @@ const {spawn} = require('child_process');
 const {performance} = require('perf_hooks');
 const ffmpegPath = require('ffmpeg-static');
 
-const {AudioMode} = require('../../../server/audio/model/AudioMode');
+const {AudioMode} = require('../../../server/audio/model/audio-mode');
 const {
   transformPcm,
   DEFAULT_LOW_PASS_CUTOFF_HZ,
-} = require('../../../server/audio/transform/AudioTransform');
+} = require('../../../server/audio/transform/audio-transform');
 
 const SEARCH_URL =
   'https://itunes.apple.com/search?term=daft%20punk&entity=song&limit=5';

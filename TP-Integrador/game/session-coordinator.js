@@ -1,4 +1,4 @@
-const {SessionState, isSessionState} = require('./SessionState');
+const {SessionState, isSessionState} = require('./session-state');
 
 class SessionCoordinator {
   constructor() {

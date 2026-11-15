@@ -7,7 +7,7 @@
     "start": "node server.js",
     "test:alt02": "node tests/alt02-concurrent-answers.js",
     "test:alt02:matrix": "node tests/alt02-matrix.js",
-    "test:c05": "node tests/audio-model.test.js",
+    "test:c05": "node tests/audio-model-test.js",
     "test:c03": "node tests/spikes/c03-audio-stack-spike.js",
     "test:c06": "node tests/spikes/audio/c06-reverse-end-to-end.js",
     "test:c07": "node tests/spikes/audio/c07-transform-modes.js",

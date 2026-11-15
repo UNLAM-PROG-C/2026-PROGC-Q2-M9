@@ -1,9 +1,9 @@
 const assert = require('assert');
 
-const AudioJob = require('../server/audio/model/AudioJob');
-const AudioResult = require('../server/audio/model/AudioResult');
-const PreparedRound = require('../server/audio/model/PreparedRound');
-const {AudioMode} = require('../server/audio/model/AudioMode');
+const AudioJob = require('../server/audio/model/audio-job');
+const AudioResult = require('../server/audio/model/audio-result');
+const PreparedRound = require('../server/audio/model/prepared-round');
+const {AudioMode} = require('../server/audio/model/audio-mode');
 
 function expectTypeError(fn, message) {
   assert.throws(fn, TypeError, message);

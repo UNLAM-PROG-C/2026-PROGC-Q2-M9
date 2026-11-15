@@ -4,10 +4,10 @@ const WebSocket = require('ws');
 const path = require('path');
 const https = require('https');
 const readline = require('readline');
-const AnswerQueue = require('./game/AnswerQueue');
-const GameCoordinator = require('./game/GameCoordinator');
-const SessionCoordinator = require('./game/SessionCoordinator');
-const {SessionState} = require('./game/SessionState');
+const AnswerQueue = require('./game/answer-queue');
+const GameCoordinator = require('./game/game-coordinator');
+const SessionCoordinator = require('./game/session-coordinator');
+const {SessionState} = require('./game/session-state');
 
 // ALT-02 / C8: modo determinístico para pruebas automatizadas.
 // No altera el modo normal; solo se activa con TRIVIA_TEST_MODE=1.
