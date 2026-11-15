@@ -4,12 +4,15 @@
  * Mide una ejecución de la inversión, no un benchmark ni paralelismo.
  * La validación estructural solo compara longitud y frames extremos.
  */
-const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
-const {spawn} = require('child_process');
-const {performance} = require('perf_hooks');
-const ffmpegPath = require('ffmpeg-static');
+import assert from 'assert';
+import fs from 'fs';
+import path from 'path';
+import {spawn} from 'child_process';
+import {performance} from 'perf_hooks';
+import {fileURLToPath} from 'url';
+import ffmpegPath from 'ffmpeg-static';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const SEARCH_URL =
   'https://itunes.apple.com/search?term=daft%20punk&entity=song&limit=5';
@@ -34,7 +37,7 @@ async function fetchPreview() {
 
   if (!searchResponse.ok) {
     throw new Error(
-      `iTunes Search API respondió HTTP ${searchResponse.status}`
+        `iTunes Search API respondió HTTP ${searchResponse.status}`,
     );
   }
 
@@ -46,7 +49,7 @@ async function fetchPreview() {
   }
 
   console.log(
-    `[C06] Preview seleccionado: ${song.artistName} - ${song.trackName}`
+      `[C06] Preview seleccionado: ${song.artistName} - ${song.trackName}`,
   );
   console.log(`[C06] previewUrl: ${song.previewUrl}`);
 
@@ -58,7 +61,7 @@ async function fetchPreview() {
 
   if (!previewResponse.ok) {
     throw new Error(
-      `El preview respondió HTTP ${previewResponse.status}`
+        `El preview respondió HTTP ${previewResponse.status}`,
     );
   }
 
@@ -112,10 +115,10 @@ function decodeToPcm(compressed) {
     ffmpeg.on('close', (code) => {
       if (code !== 0) {
         reject(
-          new Error(
-            `FFmpeg terminó con código ${code}: ` +
-            `${Buffer.concat(stderr).toString('utf8')}`
-          )
+            new Error(
+                `FFmpeg terminó con código ${code}: ` +
+            `${Buffer.concat(stderr).toString('utf8')}`,
+            ),
         );
         return;
       }
@@ -129,10 +132,10 @@ function decodeToPcm(compressed) {
 
       if (pcm.length % FRAME_SIZE !== 0) {
         reject(
-          new Error(
-            `PCM inválido: ${pcm.length} bytes no son múltiplo ` +
-            `del frame size ${FRAME_SIZE}.`
-          )
+            new Error(
+                `PCM inválido: ${pcm.length} bytes no son múltiplo ` +
+            `del frame size ${FRAME_SIZE}.`,
+            ),
         );
         return;
       }
@@ -158,7 +161,7 @@ function reversePcmFrames(pcm) {
 
   if (pcm.length % FRAME_SIZE !== 0) {
     throw new Error(
-      `El PCM debe contener frames completos de ${FRAME_SIZE} bytes.`
+        `El PCM debe contener frames completos de ${FRAME_SIZE} bytes.`,
     );
   }
 
@@ -170,10 +173,10 @@ function reversePcmFrames(pcm) {
     const sourceFrame = frameCount - 1 - destinationFrame;
 
     pcm.copy(
-      reversed,
-      destinationFrame * FRAME_SIZE,
-      sourceFrame * FRAME_SIZE,
-      sourceFrame * FRAME_SIZE + FRAME_SIZE
+        reversed,
+        destinationFrame * FRAME_SIZE,
+        sourceFrame * FRAME_SIZE,
+        sourceFrame * FRAME_SIZE + FRAME_SIZE,
     );
   }
 
@@ -195,15 +198,15 @@ function verifyReverse(original, reversed) {
   const lastReversed = reversed.subarray(reversed.length - FRAME_SIZE);
 
   assert.deepStrictEqual(
-    firstReversed,
-    lastOriginal,
-    'El primer frame invertido debe coincidir con el último frame original.'
+      firstReversed,
+      lastOriginal,
+      'El primer frame invertido debe coincidir con el último frame original.',
   );
 
   assert.deepStrictEqual(
-    lastReversed,
-    firstOriginal,
-    'El último frame invertido debe coincidir con el primer frame original.'
+      lastReversed,
+      firstOriginal,
+      'El último frame invertido debe coincidir con el primer frame original.',
   );
 }
 
@@ -252,11 +255,11 @@ async function main() {
 
   console.log(`[C06] PCM generado: ${pcm.length} bytes`);
   console.log(
-    `[C06] PCM: ${BITS_PER_SAMPLE}-bit LE, ${CHANNELS} canales, ` +
-    `${SAMPLE_RATE} Hz`
+      `[C06] PCM: ${BITS_PER_SAMPLE}-bit LE, ${CHANNELS} canales, ` +
+    `${SAMPLE_RATE} Hz`,
   );
   console.log(
-    `[C06] Duración aproximada: ${durationSeconds.toFixed(2)} s`
+      `[C06] Duración aproximada: ${durationSeconds.toFixed(2)} s`,
   );
 
   const start = performance.now();
@@ -266,11 +269,11 @@ async function main() {
   verifyReverse(pcm, reversedPcm);
 
   console.log(
-    `[C06] REVERSE JavaScript completado en ${(end - start).toFixed(2)} ms`
+      `[C06] REVERSE JavaScript completado en ${(end - start).toFixed(2)} ms`,
   );
   console.log(
-    '[C06] Verificación estructural PASS: se invirtieron frames completos, ' +
-    'preservando pares L/R.'
+      '[C06] Verificación estructural PASS: se invirtieron frames completos, ' +
+    'preservando pares L/R.',
   );
 
   const wav = encodeWav(reversedPcm);
@@ -284,7 +287,7 @@ async function main() {
   console.log(`[C06] WAV generado: ${wav.length} bytes`);
   console.log(`[C06] Archivo reproducible: ${outputPath}`);
   console.log(
-    '[C06] PASS: preview real -> decode PCM -> REVERSE JavaScript -> WAV.'
+      '[C06] PASS: preview real -> decode PCM -> REVERSE JavaScript -> WAV.',
   );
 }
 

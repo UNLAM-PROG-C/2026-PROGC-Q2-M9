@@ -59,4 +59,4 @@ class AnswerQueue {
   }
 }
 
-module.exports = AnswerQueue;
+export {AnswerQueue};

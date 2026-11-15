@@ -1,4 +1,4 @@
-const {AudioMode, isValidAudioMode} = require('../model/audio-mode');
+import {AudioMode, isValidAudioMode} from '../model/audio-mode.js';
 
 /**
  * Frecuencia de corte predeterminada para LOW_PASS, en Hz.
@@ -48,7 +48,7 @@ function validatePcmConfig({
 
   if (bitsPerSample !== 16) {
     throw new TypeError(
-      'El MVP V4 soporta únicamente PCM signed 16-bit little-endian.'
+        'El MVP V4 soporta únicamente PCM signed 16-bit little-endian.',
     );
   }
 
@@ -57,7 +57,7 @@ function validatePcmConfig({
 
   if (pcm.length % frameSize !== 0) {
     throw new TypeError(
-      `pcm debe contener frames completos de ${frameSize} bytes.`
+        `pcm debe contener frames completos de ${frameSize} bytes.`,
     );
   }
 
@@ -87,10 +87,10 @@ function reversePcmFrames(pcm, frameSize) {
     const sourceFrame = frameCount - 1 - destinationFrame;
 
     pcm.copy(
-      output,
-      destinationFrame * frameSize,
-      sourceFrame * frameSize,
-      sourceFrame * frameSize + frameSize
+        output,
+        destinationFrame * frameSize,
+        sourceFrame * frameSize,
+        sourceFrame * frameSize + frameSize,
     );
   }
 
@@ -139,7 +139,7 @@ function lowPassPcm({
 
   if (cutoffHz >= nyquistHz) {
     throw new TypeError(
-      `cutoffHz debe ser menor que Nyquist (${nyquistHz} Hz).`
+        `cutoffHz debe ser menor que Nyquist (${nyquistHz} Hz).`,
     );
   }
 
@@ -241,7 +241,7 @@ function transformPcm({
   }
 }
 
-module.exports = {
+export {
   transformPcm,
   DEFAULT_LOW_PASS_CUTOFF_HZ,
 };

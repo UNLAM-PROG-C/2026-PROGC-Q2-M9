@@ -1,4 +1,4 @@
-const AudioJob = require('./model/audio-job');
+import {AudioJob} from './model/audio-job.js';
 
 /**
  * Builds the logical identity used to track one round inside one game.
@@ -28,13 +28,13 @@ class AudioPreparationManager {
     if (workerPool === null || workerPool === undefined ||
         typeof workerPool.submit !== 'function') {
       throw new TypeError(
-        'AudioPreparationManager.workerPool debe exponer submit().'
+          'AudioPreparationManager.workerPool debe exponer submit().',
       );
     }
 
     if (createJobId !== null && typeof createJobId !== 'function') {
       throw new TypeError(
-        'AudioPreparationManager.createJobId debe ser una función.'
+          'AudioPreparationManager.createJobId debe ser una función.',
       );
     }
 
@@ -121,4 +121,4 @@ class AudioPreparationManager {
   }
 }
 
-module.exports = AudioPreparationManager;
+export {AudioPreparationManager};
