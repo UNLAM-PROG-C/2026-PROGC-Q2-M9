@@ -1,9 +1,19 @@
+/**
+ * @fileoverview Spike C03 de viabilidad del stack de audio.
+ * Comprueba que Node.js obtiene un preview de iTunes y FFmpeg lo decodifica
+ * como PCM s16le estéreo a 44100 Hz. No aplica transformaciones ni genera WAV.
+ * Depende de la red, la API externa y la disponibilidad del binario FFmpeg.
+ */
 const {spawn} = require('child_process');
 const ffmpegPath = require('ffmpeg-static');
 
 const SEARCH_URL =
   'https://itunes.apple.com/search?term=daft%20punk&entity=song&limit=5';
 
+/**
+ * Selecciona la primera canción con previewUrl de la búsqueda.
+ * @return {!Promise<string>} URL del preview.
+ */
 async function fetchPreviewUrl() {
   const response = await fetch(SEARCH_URL, {
     headers: {
@@ -30,6 +40,11 @@ async function fetchPreviewUrl() {
   return song.previewUrl;
 }
 
+/**
+ * Descarga el preview; rechaza HTTP fallido o contenido vacío.
+ * @param {string} previewUrl URL obtenida de la búsqueda.
+ * @return {!Promise<!Buffer>} Audio comprimido.
+ */
 async function downloadPreview(previewUrl) {
   const response = await fetch(previewUrl, {
     headers: {
@@ -52,6 +67,12 @@ async function downloadPreview(previewUrl) {
   return bytes;
 }
 
+/**
+ * Envía el audio a FFmpeg por stdin y reúne las muestras desde stdout.
+ * Rechaza errores o salida vacía; no valida aquí los frames completos.
+ * @param {!Buffer} inputBytes Audio comprimido.
+ * @return {!Promise<!Buffer>} PCM s16le estéreo a 44100 Hz.
+ */
 function decodeToPcm(inputBytes) {
   return new Promise((resolve, reject) => {
     const args = [
@@ -108,6 +129,10 @@ function decodeToPcm(inputBytes) {
   });
 }
 
+/**
+ * Verifica descarga y decodificación, e informa duración aproximada.
+ * @return {!Promise<void>} Finaliza o rechaza ante errores.
+ */
 async function main() {
   console.log(`[C03] FFmpeg: ${ffmpegPath}`);
 

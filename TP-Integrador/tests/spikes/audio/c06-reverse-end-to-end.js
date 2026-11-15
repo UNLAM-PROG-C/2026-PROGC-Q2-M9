@@ -1,3 +1,9 @@
+/**
+ * @fileoverview Spike C06: preview real, FFmpeg, REVERSE y salida WAV.
+ * Usa una inversión local de frames anterior a la interfaz común C07.
+ * Mide una ejecución de la inversión, no un benchmark ni paralelismo.
+ * La validación estructural solo compara longitud y frames extremos.
+ */
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
@@ -14,6 +20,11 @@ const BITS_PER_SAMPLE = 16;
 const BYTES_PER_SAMPLE = BITS_PER_SAMPLE / 8;
 const FRAME_SIZE = CHANNELS * BYTES_PER_SAMPLE;
 
+/**
+ * Busca la primera canción con previewUrl y descarga sus bytes.
+ * Rechaza respuestas HTTP fallidas o un preview vacío.
+ * @return {!Promise<!Object>} Canción seleccionada y Buffer comprimido.
+ */
 async function fetchPreview() {
   const searchResponse = await fetch(SEARCH_URL, {
     headers: {
@@ -62,6 +73,12 @@ async function fetchPreview() {
   return {song, compressed};
 }
 
+/**
+ * Invoca FFmpeg en un proceso hijo a través de stdin/stdout y acumula PCM.
+ * Rechaza errores, salida vacía o frames incompletos.
+ * @param {!Buffer} compressed Bytes del preview.
+ * @return {!Promise<!Buffer>} PCM s16le estéreo a 44100 Hz.
+ */
 function decodeToPcm(compressed) {
   return new Promise((resolve, reject) => {
     const args = [
@@ -127,6 +144,13 @@ function decodeToPcm(compressed) {
   });
 }
 
+/**
+ * Invierte el orden temporal de frames de cuatro bytes, sin alterar L/R.
+ * @param {!Buffer} pcm PCM con frames completos.
+ * @return {!Buffer} Nuevo buffer invertido.
+ * @throws {TypeError} Si pcm no es Buffer.
+ * @throws {Error} Si la longitud no es múltiplo del tamaño del frame.
+ */
 function reversePcmFrames(pcm) {
   if (!Buffer.isBuffer(pcm)) {
     throw new TypeError('reversePcmFrames requiere un Buffer.');
@@ -156,6 +180,11 @@ function reversePcmFrames(pcm) {
   return reversed;
 }
 
+/**
+ * Compara longitud y primer/último frame; no examina todos los frames.
+ * @param {!Buffer} original PCM de entrada.
+ * @param {!Buffer} reversed PCM invertido.
+ */
 function verifyReverse(original, reversed) {
   assert.strictEqual(reversed.length, original.length);
 
@@ -178,6 +207,11 @@ function verifyReverse(original, reversed) {
   );
 }
 
+/**
+ * Antepone una cabecera RIFF/WAVE PCM de 44 bytes con formato fijo.
+ * @param {!Buffer} pcm Muestras a codificar.
+ * @return {!Buffer} Contenido del WAV.
+ */
 function encodeWav(pcm) {
   const header = Buffer.alloc(44);
 
@@ -203,6 +237,10 @@ function encodeWav(pcm) {
   return Buffer.concat([header, pcm]);
 }
 
+/**
+ * Ejecuta la prueba de extremo a extremo y escribe c06-reverse.wav.
+ * @return {!Promise<void>} Finaliza o rechaza si una etapa falla.
+ */
 async function main() {
   console.log(`[C06] FFmpeg: ${ffmpegPath}`);
 

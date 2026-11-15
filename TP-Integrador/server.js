@@ -1,3 +1,10 @@
+/**
+ * @fileoverview Servidor HTTP y WebSocket de Trivia Musical.
+ * Orquesta el ciclo de sesión, la cola FIFO y el transporte del protocolo.
+ * El modo normal carga previews de iTunes que reproducen los clientes;
+ * los contratos y transformaciones de audio V4 aún no integran este flujo.
+ * El procesamiento de respuestas se realiza en el event loop de Node.js.
+ */
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
@@ -36,10 +43,21 @@ const playersById = new Map();
 const playerIdBySocket = new Map();
 const socketByPlayerId = new Map();
 
+/**
+ * Genera un ID interno creciente dentro de este proceso, no global.
+ * @return {string} Identificador independiente del nombre visible.
+ */
 function generatePlayerId() {
   return `P${String(nextPlayerNumber++).padStart(3, '0')}`;
 }
 
+/**
+ * Registra un jugador nuevo y las asociaciones entre socket e ID.
+ * Los nombres visibles pueden repetirse. La elegibilidad se ajusta aparte.
+ * @param {!WebSocket} ws Conexión del jugador.
+ * @param {string} displayName Nombre visible esperado del cliente.
+ * @return {!Object} Registro mutable conservado en playersById.
+ */
 function registerPlayer(ws, displayName) {
   const playerId = generatePlayerId();
   const player = {
@@ -57,15 +75,28 @@ function registerPlayer(ws, displayName) {
   return player;
 }
 
+/**
+ * @param {!WebSocket} ws Conexión que se desea identificar.
+ * @return {?Object|undefined} Registro asociado; null si no hay ID.
+ */
 function getPlayerBySocket(ws) {
   const playerId = playerIdBySocket.get(ws);
   return playerId ? playersById.get(playerId) : null;
 }
 
+/**
+ * @return {number} Identificador de ronda con base 1 (currentRound + 1).
+ */
 function getCurrentRoundId() {
   return currentRound + 1;
 }
 
+/**
+ * Actualiza la elegibilidad al ingresar según el estado de sesión.
+ * En LOBBY puede jugar desde la primera ronda; durante una partida, desde
+ * la siguiente. En GAME_OVER queda inhabilitado hasta el reinicio.
+ * @param {!Object} player Registro mutable del jugador recién incorporado.
+ */
 function configurePlayerEligibilityOnJoin(player) {
   const sessionState = sessionCoordinator.getState();
 
@@ -90,10 +121,21 @@ function configurePlayerEligibilityOnJoin(player) {
   player.eligibleFromRoundId = Number.POSITIVE_INFINITY;
 }
 
+/**
+ * Comprueba solo el límite de ronda; no valida conexión ni estado de sesión.
+ * @param {!Object} player Registro del jugador.
+ * @return {boolean} True si la ronda actual alcanza su límite de ingreso.
+ */
 function isPlayerEligibleForCurrentRound(player) {
   return player.eligibleFromRoundId <= getCurrentRoundId();
 }
 
+/**
+ * Marca al jugador desconectado y elimina las asociaciones de transporte.
+ * Conserva su registro y puntaje hasta resetPlayersForNewGame.
+ * @param {!WebSocket} ws Conexión cerrada.
+ * @return {?Object|undefined} Registro encontrado, si lo hay.
+ */
 function markPlayerDisconnected(ws) {
   const player = getPlayerBySocket(ws);
   if (player) {
@@ -106,6 +148,12 @@ function markPlayerDisconnected(ws) {
   return player;
 }
 
+/**
+ * Envía un mensaje JSON si el socket asociado está abierto.
+ * No espera confirmación de recepción ni de procesamiento del cliente.
+ * @param {string} playerId Identidad interna del destinatario.
+ * @param {!Object} data Mensaje serializable del protocolo.
+ */
 function sendToPlayer(playerId, data) {
   const ws = socketByPlayerId.get(playerId);
   if (ws && ws.readyState === WebSocket.OPEN) {
@@ -113,6 +161,10 @@ function sendToPlayer(playerId, data) {
   }
 }
 
+/**
+ * Reinicia los intentos de todos los registros, incluidos desconectados.
+ * No modifica sus puntajes acumulados.
+ */
 function resetAllPlayerAttempts() {
   for (const player of playersById.values()) {
     player.attempts = 0;
@@ -121,6 +173,10 @@ function resetAllPlayerAttempts() {
 
 // V3 / C8: prepara a los jugadores conectados para una nueva partida.
 // Los desconectados históricos dejan de formar parte de la nueva sesión.
+/**
+ * Elimina los registros históricos desconectados y reinicializa puntaje,
+ * intentos y elegibilidad de los conectados, sin cambiar sus identidades.
+ */
 function resetPlayersForNewGame() {
   for (const [playerId, player] of playersById.entries()) {
     if (!player.connected) {
@@ -136,6 +192,11 @@ function resetPlayersForNewGame() {
 
 // ALT-03: proyección del estado interno hacia el protocolo del cliente.
 // Se usa una lista porque displayName no es una clave única.
+/**
+ * Proyecta los registros al protocolo, incluidos los desconectados.
+ * No ordena por puntaje: el cliente construye la vista ordenada.
+ * @return {!Array<!Object>} Nueva lista de vistas públicas de jugadores.
+ */
 function buildLeaderboardView() {
   return Array.from(playersById.values()).map(player => ({
     playerId: player.playerId,
@@ -145,6 +206,10 @@ function buildLeaderboardView() {
   }));
 }
 
+/**
+ * @param {?Object} player Registro ganador, si existe.
+ * @return {?Object} Proyección pública del ganador o null.
+ */
 function buildWinnerView(player) {
   if (!player) {
     return null;
@@ -157,6 +222,11 @@ function buildWinnerView(player) {
   };
 }
 
+/**
+ * Elige el mayor puntaje entre todos los registros de la partida.
+ * En empate conserva el primero visitado en el orden del Map.
+ * @return {?Object} Registro ganador o null si no hay jugadores.
+ */
 function getFinalWinner() {
   let winner = null;
   for (const player of playersById.values()) {
@@ -170,6 +240,14 @@ function getFinalWinner() {
 // ALT-01 / C4: orden total asignado por el servidor a cada respuesta recibida.
 let nextAnswerSequence = 1;
 
+/**
+ * Captura la respuesta y su contexto de recepción en el servidor.
+ * La secuencia aumenta por evento admitido, no por instante de envío remoto.
+ * @param {!Object} player Registro del jugador registrado y elegible.
+ * @param {*} answer Valor recibido; aquí no se valida su tipo.
+ * @return {!Object} AnswerEvent con sequence, playerId, roundId, answer
+ *     y receivedAt en milisegundos desde la época Unix.
+ */
 function createAnswerEvent(player, answer) {
   return {
     sequence: nextAnswerSequence++,
@@ -186,6 +264,11 @@ function createAnswerEvent(player, answer) {
 const answerQueue = new AnswerQueue();
 let answerQueueProcessingScheduled = false;
 
+/**
+ * Agrega la respuesta al final de la cola, registra su secuencia y agenda
+ * el drenaje. No adjudica una respuesta desde el productor.
+ * @param {!Object} answerEvent Evento de respuesta creado por el servidor.
+ */
 function enqueueAnswerEvent(answerEvent) {
   answerQueue.enqueue(answerEvent);
   console.log(
@@ -195,6 +278,11 @@ function enqueueAnswerEvent(answerEvent) {
   scheduleAnswerQueueProcessing();
 }
 
+/**
+ * Agenda un único drenaje pendiente mediante una bandera del event loop.
+ * Usa setImmediate en producción y permite una demora artificial en test.
+ * No crea hilos ni utiliza primitivas de exclusión mutua.
+ */
 function scheduleAnswerQueueProcessing() {
   if (answerQueueProcessingScheduled) {
     return;
@@ -209,6 +297,13 @@ function scheduleAnswerQueueProcessing() {
   }
 }
 
+/**
+ * Drena la cola FIFO de manera síncrona y delega cada evento al coordinador.
+ * La bandera se libera en finally incluso si ocurre una excepción. Si quedan
+ * eventos se agenda otro drenaje; no se procesa fuera de la cola.
+ * La exclusividad corresponde al flujo actual del event loop, no a un lock
+ * entre hilos. Las excepciones del coordinador no se capturan aquí.
+ */
 function processAnswerQueue() {
   try {
     while (!answerQueue.isEmpty()) {
@@ -242,6 +337,13 @@ let gameFinished = false;
 // el ciclo de vida que la aplicación ya ejecuta.
 const sessionCoordinator = new SessionCoordinator();
 
+/**
+ * Delega la validación de la transición al SessionCoordinator y registra
+ * su resultado. No modifica los demás datos operativos de la partida.
+ * @param {string} nextState Estado de destino solicitado.
+ * @param {string} reason Motivo para el log de la transición.
+ * @return {!Object} Resultado de la transición informado por el coordinador.
+ */
 function transitionSessionTo(nextState, reason) {
   const transition = sessionCoordinator.transitionTo(nextState);
 
@@ -254,12 +356,20 @@ function transitionSessionTo(nextState, reason) {
 }
 
 // V3 / C5: jugadores conectados y vista pública del estado de sesión.
+/**
+ * @return {!Array<string>} IDs de registros actualmente conectados.
+ */
 function getConnectedPlayerIds() {
   return Array.from(playersById.values())
       .filter(player => player.connected)
       .map(player => player.playerId);
 }
 
+/**
+ * Construye la vista pública de sesión y de la barrera READY.
+ * canStart refleja al coordinador, no comprueba el horario de inicio.
+ * @return {!Object} Mensaje SESSION_STATE con estado, generación y conteos.
+ */
 function buildSessionStateView() {
   const connectedPlayerIds = getConnectedPlayerIds();
 
@@ -274,12 +384,23 @@ function buildSessionStateView() {
   };
 }
 
+/**
+ * Difunde la vista actual de sesión a los sockets abiertos.
+ */
 function broadcastSessionState() {
   broadcast(buildSessionStateView());
 }
 
 let lastReadyBarrierStatus = null;
 
+/**
+ * Inicia la primera ronda si está en LOBBY y la barrera permite avanzar.
+ * El modo de prueba omite READY. Los llamadores verifican el horario;
+ * esta función no lo hace ni comprueba que la playlist tenga canciones.
+ * Reinicia intentos, abre la ronda y difunde NEW_SONG y el estado público.
+ * @param {string} reason Motivo del inicio para la traza de sesión.
+ * @return {boolean} True si se inició; false si rechazó las precondiciones.
+ */
 function startGameFromLobby(reason) {
   if (sessionCoordinator.getState() !== SessionState.LOBBY) {
     return false;
@@ -325,6 +446,11 @@ const rl = readline.createInterface({
   output: process.stdout,
 });
 
+/**
+ * Solicita al operador horario, demora y rondas mediante callbacks readline.
+ * Aplica valores predeterminados y pospone un horario pasado. No realiza una
+ * validación exhaustiva de los datos ingresados. Luego inicia el servidor.
+ */
 function askConfig() {
   console.log('\n==============================================');
   console.log('   CONFIGURACIÓN DE LA PARTIDA DE TRIVIA');
@@ -375,6 +501,12 @@ function askConfig() {
   });
 }
 
+/**
+ * Normaliza texto para comparar títulos sin mayúsculas ni marcas diacríticas
+ * combinantes del intervalo eliminado. No comprueba el tipo de entrada.
+ * @param {string} text Texto a normalizar.
+ * @return {string} Texto normalizado sin espacios en los extremos.
+ */
 function normalizeText(text) {
   return text.toLowerCase()
       .normalize('NFD')
@@ -382,6 +514,14 @@ function normalizeText(text) {
       .trim();
 }
 
+/**
+ * Consulta iTunes mediante HTTPS y reemplaza la playlist compartida.
+ * Filtra por artista y preview, descarta ciertos títulos y álbumes en vivo,
+ * elimina duplicados por título normalizado y mezcla el resultado.
+ * Ante errores de parseo o de la solicitud utiliza canciones de respaldo.
+ * No descarga audio, no valida su reproducción ni garantiza una lista no vacía.
+ * @return {!Promise<void>} Promesa que se resuelve al cargar la playlist.
+ */
 function fetchPlaylistFromItunes() {
   return new Promise((resolve) => {
     const url = 'https://itunes.apple.com/search?term=No+Te+Va+Gustar&entity=song&limit=200';
@@ -454,6 +594,11 @@ function fetchPlaylistFromItunes() {
   });
 }
 
+/**
+ * Expone al coordinador el contexto operativo vigente.
+ * La playlist se comparte por referencia; no se genera una copia profunda.
+ * @return {!Object} Flags, índices, límites, demora y playlist actuales.
+ */
 function getRoundContext() {
   return {
     gameStarted,
@@ -466,6 +611,11 @@ function getRoundContext() {
   };
 }
 
+/**
+ * Finaliza la partida tras la adjudicación de la última ronda.
+ * Actualiza la sesión y los flags, calcula el ganador y difunde los resultados.
+ * No elimina registros de jugadores ni crea una nueva generación.
+ */
 function finishGameFromAnswer() {
   transitionSessionTo(
     SessionState.GAME_OVER,
@@ -489,6 +639,12 @@ function finishGameFromAnswer() {
   console.log(`[*] ¡Partida finalizada! Ganador: ${winnerLabel}`);
 }
 
+/**
+ * Pasa a BETWEEN_ROUNDS y programa la próxima canción mediante un timeout.
+ * Al vencer incrementa ronda e índice, reinicia intentos y abre la ronda.
+ * La pausa es un mínimo solicitado al event loop, no un plazo exacto.
+ * @param {number} delaySeconds Demora solicitada en segundos.
+ */
 function scheduleNextRoundFromAnswer(delaySeconds) {
   transitionSessionTo(
     SessionState.BETWEEN_ROUNDS,
@@ -542,6 +698,13 @@ const gameCoordinator = new GameCoordinator({
   scheduleNextRound: scheduleNextRoundFromAnswer,
 });
 
+/**
+ * Registra los handlers de cada conexión WebSocket.
+ * JOIN asigna identidad; READY y UNREADY modifican la barrera. ANSWER valida
+ * registro, estado y elegibilidad antes de encolar para adjudicación.
+ * El cierre retira el transporte y READY, pero conserva el registro histórico.
+ * Los mensajes se interpretan como JSON; no hay validación completa de esquema.
+ */
 wss.on('connection', (ws) => {
   let username = '';
   let playerId = null;
@@ -743,6 +906,11 @@ wss.on('connection', (ws) => {
   });
 });
 
+/**
+ * Difunde el mensaje a todos los sockets abiertos, aun sin JOIN registrado.
+ * No garantiza recepción simultánea ni reproducción sincronizada.
+ * @param {!Object} data Mensaje del protocolo serializable como JSON.
+ */
 function broadcast(data) {
   wss.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN) {
@@ -751,6 +919,9 @@ function broadcast(data) {
   });
 }
 
+/**
+ * Difunde UPDATE_LEADERBOARD con la proyección actual de los jugadores.
+ */
 function broadcastLeaderboard() {
   broadcast({
     type: 'UPDATE_LEADERBOARD',
@@ -760,6 +931,11 @@ function broadcastLeaderboard() {
 
 
 // Listener de comandos en la terminal del servidor en tiempo real
+/**
+ * Inicia la lectura recurrente de comandos del operador.
+ * r/restart solicita reiniciar; cualquier otro ingreso sigue el camino de
+ * avance forzado. El reinicio y avance validan sus propios estados.
+ */
 function setupConsoleCommands() {
   const consoleRl = readline.createInterface({
     input: process.stdin,
@@ -767,6 +943,9 @@ function setupConsoleCommands() {
     prompt: '',
   });
 
+  /**
+   * Lee un comando y vuelve a solicitar otro cuando termina su callback.
+   */
   function promptUser() {
     const operatorQuestion = 'comando operador ' +
       '[x=avanzar ronda, r=restart tras GAME_OVER]: ';
@@ -789,6 +968,14 @@ function setupConsoleCommands() {
 
 let transitionTimeout = null;
 
+/**
+ * Reinicia desde GAME_OVER: cancela el timer de transición, incrementa la
+ * generación de sesión y limpia READY por medio del coordinador de sesión.
+ * Conserva conexiones vigentes y playlist; reinicia índices, intentos,
+ * puntajes y adjudicador. La hora deja de impedir el inicio por READY.
+ * No vacía explícitamente AnswerQueue ni reinicia las secuencias de respuesta.
+ * @return {boolean} True si se reinició; false si el estado no lo permite.
+ */
 function restartGame() {
   if (sessionCoordinator.getState() !== SessionState.GAME_OVER) {
     console.log(
@@ -837,6 +1024,11 @@ function restartGame() {
   return true;
 }
 
+/**
+ * Permite al operador adelantar una ronda activa sin adjudicar puntos.
+ * Cancela el timeout previo, anuncia ganador ficticio y espera cinco segundos.
+ * Luego finaliza por límite de rondas o playlist, o abre la siguiente ronda.
+ */
 function forceNextRound() {
   if (!gameStarted && !gameFinished) {
     console.log('[!] La partida aún no comenzó.');
@@ -921,6 +1113,12 @@ function forceNextRound() {
   }, 5000);
 }
 
+/**
+ * Abre el servidor HTTP y agenda la comprobación del inicio programado.
+ * En modo normal exige READY; en test omite esa barrera. El intervalo se
+ * cancela cuando el flujo de comprobación invoca el inicio desde LOBBY.
+ * El reinicio posterior utiliza los handlers READY y desconexión.
+ */
 function startServerAndGameLoop() {
   if (!TEST_MODE) {
     setupConsoleCommands();
@@ -966,6 +1164,11 @@ function startServerAndGameLoop() {
   }, TEST_MODE ? 10 : 1000);
 }
 
+/**
+ * Prepara una playlist sintética de respuestas conocidas para ALT-02.
+ * Omite iTunes y la configuración interactiva, cierra readline y arranca el
+ * servidor con demora y rondas configurables. No proporciona audio real.
+ */
 function startDeterministicTestMode() {
   // Una entrada por ronda evita que la condición de fin dependa del tamaño
   // de una playlist externa. Todas comparten la misma respuesta conocida.

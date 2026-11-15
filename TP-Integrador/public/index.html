@@ -320,6 +320,12 @@
     </div>
 
     <script>
+/**
+ * @fileoverview Cliente web: estado local, protocolo WebSocket y presentación.
+ * El servidor decide la elegibilidad, los ganadores y el inicio de rondas.
+ * Los timers son visuales; el navegador solicita la reproducción del preview
+ * recibido, sin barrera de audio ni sincronización temporal entre clientes.
+ */
 let ws;
 let myUsername = '';
 let songTitles = [];
@@ -331,6 +337,11 @@ let myReady = false;
 let lastSessionState = null;
 let readyActionPending = false;
 
+/**
+ * Normaliza las búsquedas de títulos para el autocompletado.
+ * @param {string} text Texto de búsqueda o título.
+ * @return {string} Texto en minúsculas sin marcas diacríticas indicadas.
+ */
 function normalizeClientText(text) {
   return text.toLowerCase()
       .normalize('NFD')
@@ -338,6 +349,12 @@ function normalizeClientText(text) {
       .trim();
 }
 
+/**
+ * Lee el nombre visible, abre un WebSocket y registra sus handlers.
+ * Envía JOIN al abrir la conexión. Los mensajes del servidor actualizan
+ * identidad, READY, rondas, intentos, puntajes y reproducción de audio.
+ * No confirma el instante efectivo en que empieza a sonar cada preview.
+ */
 function joinGame() {
   myUsername = document.getElementById('username').value.trim();
   if (!myUsername) {
@@ -392,6 +409,11 @@ function joinGame() {
         'Esperando próxima ronda';
     }
 
+    /**
+     * Inicia la vista de ronda y solicita play() al reproductor local.
+     * La resolución de play depende del navegador, la carga y sus políticas;
+     * recibir el mismo mensaje no garantiza reproducción simultánea.
+     */
     if (data.type === 'INIT_GAME' || data.type === 'NEW_SONG') {
       if (countdownInterval) {
         clearInterval(countdownInterval);
@@ -524,6 +546,12 @@ function joinGame() {
   };
 }
 
+/**
+ * Actualiza la vista READY a partir del estado recibido del servidor.
+ * Libera el indicador de acción pendiente y deriva myReady del ID propio.
+ * No inicia la partida localmente aunque canStart sea true.
+ * @param {!Object} data Mensaje SESSION_STATE del servidor.
+ */
 function updateSessionState(data) {
   lastSessionState = data;
   readyActionPending = false;
@@ -570,6 +598,10 @@ function updateSessionState(data) {
   }
 }
 
+/**
+ * Solicita READY o UNREADY solo con conexión abierta y sesión LOBBY.
+ * Deshabilita el control hasta recibir el próximo estado de sesión.
+ */
 function toggleReady() {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
@@ -590,6 +622,14 @@ function toggleReady() {
   }));
 }
 
+/**
+ * Muestra la espera visual antes de la siguiente ronda.
+ * El inicio efectivo depende del mensaje del servidor, no de este intervalo.
+ * @param {number} totalSeconds Demora anunciada en segundos.
+ * @param {string} winner Nombre visible del ganador de la ronda.
+ * @param {string} songTitle Título revelado de la canción.
+ * @param {number} points Puntos adjudicados en la ronda.
+ */
 function startRoundTransitionCountdown(
   totalSeconds, winner, songTitle, points
 ) {
@@ -598,6 +638,9 @@ function startRoundTransitionCountdown(
   }
   let timeLeft = totalSeconds;
 
+  /**
+   * Actualiza el contador visual y el overlay; no inicia otra ronda.
+   */
   function updateUI() {
     if (timeLeft <= 0) {
       clearInterval(roundTimerInterval);
@@ -627,12 +670,20 @@ function startRoundTransitionCountdown(
   roundTimerInterval = setInterval(updateUI, 1000);
 }
 
+/**
+ * Muestra la cuenta regresiva local hasta el horario de inicio.
+ * Al llegar a cero informa la espera de READY o del servidor.
+ * @param {number} seconds Segundos restantes anunciados por el servidor.
+ */
 function startCountdown(seconds) {
   if (countdownInterval) {
     clearInterval(countdownInterval);
   }
   let remaining = seconds;
 
+  /**
+   * Actualiza la representación minutos:segundos del contador local.
+   */
   function updateTimer() {
     if (remaining <= 0) {
       const canStart = lastSessionState && lastSessionState.canStart;
@@ -651,6 +702,10 @@ function startCountdown(seconds) {
   countdownInterval = setInterval(updateTimer, 1000);
 }
 
+/**
+ * Genera hasta siete sugerencias locales por coincidencia de subcadena.
+ * Seleccionar una sugerencia completa el campo, pero no envía la respuesta.
+ */
 function handleInput() {
   const queryRaw = document.getElementById('answer').value;
   const query = normalizeClientText(queryRaw);
@@ -692,6 +747,11 @@ document.getElementById('answer').addEventListener('blur', () => {
   }, 200);
 });
 
+/**
+ * Envía ANSWER con el texto recortado si no está vacío y limpia el campo.
+ * No valida la respuesta ni comprueba aquí que el socket esté abierto;
+ * la adjudicación y elegibilidad son responsabilidad del servidor.
+ */
 function sendAnswer() {
   const ansField = document.getElementById('answer');
   const answer = ansField.value.trim();
@@ -704,6 +764,13 @@ function sendAnswer() {
   document.getElementById('suggestions-list').style.display = 'none';
 }
 
+/**
+ * Agrega un intento a la vista y desplaza el historial al último elemento.
+ * No adjudica puntos: los datos proceden del mensaje recibido.
+ * @param {string} text Respuesta a mostrar.
+ * @param {boolean} isCorrect Indica si el intento fue correcto.
+ * @param {number} pts Puntos recibidos para la presentación del intento.
+ */
 function addAttempt(text, isCorrect, pts) {
   const list = document.getElementById('attempts-list');
   if (list.querySelector("li[style*='color: #777']")) {
@@ -726,6 +793,10 @@ function addAttempt(text, isCorrect, pts) {
   box.scrollTop = box.scrollHeight;
 }
 
+/**
+ * Restaura el contador de puntos potenciales y el historial visual local.
+ * No modifica los puntajes ni los intentos almacenados en el servidor.
+ */
 function resetRoundState() {
   currentPotentialPoints = 100;
   document.getElementById('potential-points').innerText =
@@ -735,6 +806,9 @@ function resetRoundState() {
     'Sin intentos aún</li>';
 }
 
+/**
+ * Solicita el cierre del socket, si existe, y restaura la interfaz.
+ */
 function leaveGame() {
   if (ws) {
     ws.close();
@@ -742,6 +816,10 @@ function leaveGame() {
   resetUI();
 }
 
+/**
+ * Detiene los intervalos locales, pausa el audio y restablece el ingreso.
+ * Limpia la identidad y READY locales; no reinicia la sesión del servidor.
+ */
 function resetUI() {
   if (countdownInterval) {
     clearInterval(countdownInterval);

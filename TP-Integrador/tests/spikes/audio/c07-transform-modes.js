@@ -1,3 +1,9 @@
+/**
+ * @fileoverview Spike C07 de la interfaz común de transformaciones PCM.
+ * Aplica NORMAL, REVERSE y LOW_PASS al mismo preview real decodificado.
+ * Comprueba propiedades estructurales seleccionadas y genera tres WAV.
+ * Los tiempos son mediciones individuales; no prueban speedup ni paralelismo.
+ */
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
@@ -20,6 +26,10 @@ const BITS_PER_SAMPLE = 16;
 const BYTES_PER_SAMPLE = BITS_PER_SAMPLE / 8;
 const FRAME_SIZE = CHANNELS * BYTES_PER_SAMPLE;
 
+/**
+ * Busca la primera canción con previewUrl y descarga sus bytes.
+ * @return {!Promise<!Buffer>} Preview comprimido no vacío.
+ */
 async function fetchPreview() {
   const searchResponse = await fetch(SEARCH_URL, {
     headers: {
@@ -67,6 +77,12 @@ async function fetchPreview() {
   return compressed;
 }
 
+/**
+ * Decodifica mediante FFmpeg en un proceso hijo; reúne stdout en memoria.
+ * Rechaza errores o salida vacía. No comprueba aquí la alineación de frames.
+ * @param {!Buffer} compressed Bytes del preview.
+ * @return {!Promise<!Buffer>} PCM s16le estéreo a 44100 Hz.
+ */
 function decodeToPcm(compressed) {
   return new Promise((resolve, reject) => {
     const args = [
@@ -122,6 +138,11 @@ function decodeToPcm(compressed) {
   });
 }
 
+/**
+ * Antepone una cabecera RIFF/WAVE PCM de 44 bytes con formato fijo.
+ * @param {!Buffer} pcm Muestras a codificar.
+ * @return {!Buffer} Contenido del WAV.
+ */
 function encodeWav(pcm) {
   const header = Buffer.alloc(44);
 
@@ -147,6 +168,13 @@ function encodeWav(pcm) {
   return Buffer.concat([header, pcm]);
 }
 
+/**
+ * Invoca transformPcm de forma síncrona y registra el tiempo transcurrido.
+ * @param {!Buffer} pcm Audio de entrada.
+ * @param {string} mode Modo de transformación.
+ * @param {!Object=} options Opciones del modo.
+ * @return {!Buffer} PCM transformado.
+ */
 function runTransform(pcm, mode, options = {}) {
   const start = performance.now();
 
@@ -168,6 +196,16 @@ function runTransform(pcm, mode, options = {}) {
   return result;
 }
 
+/**
+ * Comprueba que NORMAL sea otro Buffer de igual contenido, longitudes de
+ * REVERSE y LOW_PASS, frames extremos de REVERSE y cambio en LOW_PASS.
+ * No verifica toda la inversión, respuesta espectral ni ausencia de mutación
+ * mediante una copia previa de original.
+ * @param {!Buffer} original PCM de entrada.
+ * @param {!Buffer} normal Salida NORMAL.
+ * @param {!Buffer} reversed Salida REVERSE.
+ * @param {!Buffer} lowPass Salida LOW_PASS.
+ */
 function validateModes(original, normal, reversed, lowPass) {
   assert.notStrictEqual(
     normal,
@@ -206,6 +244,10 @@ function validateModes(original, normal, reversed, lowPass) {
   );
 }
 
+/**
+ * Ejecuta los tres modos con el mismo PCM y escribe sus archivos WAV.
+ * @return {!Promise<void>} Finaliza o rechaza ante errores.
+ */
 async function main() {
   console.log(
     `[C07] LOW_PASS cutoff por defecto: ${DEFAULT_LOW_PASS_CUTOFF_HZ} Hz`

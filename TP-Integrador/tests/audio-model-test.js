@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Pruebas C05 de los contratos de datos D03.
+ * Ejercita constructores válidos y rechazos seleccionados mediante assert.
+ * No ejecuta trabajos de audio ni verifica recursos externos, workers o I/O.
+ */
 const assert = require('assert');
 
 const AudioJob = require('../server/audio/model/audio-job');
@@ -5,10 +10,19 @@ const AudioResult = require('../server/audio/model/audio-result');
 const PreparedRound = require('../server/audio/model/prepared-round');
 const {AudioMode} = require('../server/audio/model/audio-mode');
 
+/**
+ * Comprueba que la operación arroje TypeError, sin exigir un texto concreto.
+ * @param {function(): *} fn Operación inválida a ejecutar.
+ * @param {string} message Mensaje de diagnóstico de la aserción.
+ */
 function expectTypeError(fn, message) {
   assert.throws(fn, TypeError, message);
 }
 
+/**
+ * Verifica identidad del source y datos válidos; rechaza ejemplos de
+ * identificadores inválidos, modo desconocido y fuente ausente.
+ */
 function testAudioJob() {
   const source = {previewUrl: 'https://example.test/song.m4a'};
 
@@ -87,6 +101,10 @@ function testAudioJob() {
   );
 }
 
+/**
+ * Verifica resultados exitosos y fallidos, valores predeterminados y
+ * rechazo de combinaciones contradictorias o incompletas de resource/error.
+ */
 function testAudioResult() {
   const success = new AudioResult({
     jobId: 'job-10',
@@ -169,6 +187,10 @@ function testAudioResult() {
   );
 }
 
+/**
+ * Verifica referencia de canción y valor del recurso; rechaza ejemplos de
+ * modo, canción o recurso inválidos.
+ */
 function testPreparedRound() {
   const song = {
     title: 'Canción de prueba',
@@ -229,6 +251,9 @@ function testPreparedRound() {
   );
 }
 
+/**
+ * Ejecuta los tres grupos; una aserción fallida impide informar PASS.
+ */
 function run() {
   testAudioJob();
   testAudioResult();

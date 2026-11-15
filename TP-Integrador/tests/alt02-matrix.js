@@ -1,3 +1,11 @@
+/**
+ * @fileoverview Matriz de escenarios de concurrencia ALT-02.
+ * Ejecuta los cuatro escenarios en procesos hijos, de forma secuencial.
+ * El número de rondas por escenario se configura con ALT02_MATRIX_ROUNDS
+ * (20 por defecto). Un escenario aprueba si su harness termina con código 0.
+ * Las recepciones confirmadas por el servidor, y no el orden de envío,
+ * determinan los líderes esperados de S2, S3 y S4.
+ */
 const {spawnSync} = require('child_process');
 const path = require('path');
 
@@ -7,6 +15,12 @@ const rounds = Math.max(
   1, Number.parseInt(process.env.ALT02_MATRIX_ROUNDS || '20', 10)
 );
 
+/**
+ * Configuraciones independientes: S1 sin líder prefijado; S2 y S3 con
+ * líder confirmado de dos clientes; S4 con cinco clientes y líder C5.
+ * Cada escenario utiliza un puerto y una demora artificial de drenaje.
+ * @type {!Array<!Object>}
+ */
 const scenarios = [
   {
     id: 'S1',

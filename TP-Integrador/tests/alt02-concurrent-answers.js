@@ -1,3 +1,10 @@
+/**
+ * @fileoverview Harness ALT-02 de adjudicación concurrente.
+ * Inicia un servidor aislado en modo de prueba y clientes WebSocket sin UI.
+ * Todos envían la respuesta correcta conocida. La demora artificial permite
+ * acumular respuestas antes del drenaje. No mide latencia de audio ni
+ * simultaneidad física, y depende del formato de los logs del servidor.
+ */
 const {spawn} = require('child_process');
 const path = require('path');
 const WebSocket = require('ws');
@@ -65,6 +72,11 @@ const server = spawn(process.execPath, [serverPath], {
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 
+/**
+ * Extrae recepciones, tamaños de cola, adjudicaciones y descartes de logs.
+ * Analiza cada chunk por separado; no recompone líneas partidas entre chunks.
+ * @param {string} text Fragmento de stdout del servidor.
+ */
 function consumeServerText(text) {
   process.stdout.write(text);
   for (const rawLine of text.split(/\r?\n/)) {
@@ -130,6 +142,11 @@ const firedRounds = new Set();
 const followerReleaseByRound = new Set();
 const leadConfirmations = new Map();
 
+/**
+ * Agenda el envío de la respuesta correcta si el socket sigue abierto.
+ * @param {!Object} client Cliente simulado.
+ * @param {number=} delayMs Demora solicitada en milisegundos, no exacta.
+ */
 function sendAnswer(client, delayMs = 0) {
   setTimeout(() => {
     if (client.ws && client.ws.readyState === WebSocket.OPEN) {
@@ -138,6 +155,12 @@ function sendAnswer(client, delayMs = 0) {
   }, delayMs);
 }
 
+/**
+ * Dispara una sola vez por ronda cuando todos recibieron su inicio.
+ * Con líder designado, los seguidores esperan confirmación de recepción.
+ * Sin líder, los offsets son relativos al disparo local del harness.
+ * @param {number} round Número de ronda.
+ */
 function maybeFire(round) {
   const readySet = roundReady.get(round);
   if (!readySet || readySet.size !== clients.length || firedRounds.has(round)) {
@@ -161,6 +184,11 @@ function maybeFire(round) {
   clients.forEach((client, index) => sendAnswer(client, OFFSETS[index]));
 }
 
+/**
+ * Libera seguidores solo tras observar el log de recepción del líder.
+ * No presupone que un menor offset implique llegar primero al servidor.
+ * @param {!Object} receipt Registro de secuencia, nombre y ronda.
+ */
 function maybeReleaseFollowersAfterServerReceipt(receipt) {
   if (LEAD_CLIENT_NUMBER === null ||
       followerReleaseByRound.has(receipt.round)) {
@@ -188,6 +216,12 @@ function maybeReleaseFollowersAfterServerReceipt(receipt) {
   });
 }
 
+/**
+ * Registra mensajes relevantes y evita repetir el disparo por INIT_GAME
+ * o NEW_SONG duplicados. No reproduce audio ni usa la barrera READY real.
+ * @param {!Object} client Cliente simulado.
+ * @param {!Object} data Mensaje JSON interpretado.
+ */
 function handleClientMessage(client, data) {
   if (data.type === 'WAITING_START') {
     client.ready = true;
@@ -231,6 +265,9 @@ function handleClientMessage(client, data) {
   }
 }
 
+/**
+ * Conecta los clientes al servidor local y solicita JOIN al abrir el socket.
+ */
 function connectClients() {
   for (const client of clients) {
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
@@ -253,10 +290,19 @@ function connectClients() {
   }
 }
 
+/**
+ * @param {number} round Ronda cuya recepción se consulta.
+ * @return {!Array<!Object>} Registros de recepción de esa ronda.
+ */
 function roundReceipts(round) {
   return answerReceipts.filter(item => item.round === round);
 }
 
+/**
+ * Relaciona los logs de encolado con las secuencias recibidas en la ronda.
+ * @param {number} round Ronda consultada.
+ * @return {number} Máximo observado; cero si faltan registros.
+ */
 function maxQueueSizeForRound(round) {
   const sequences = new Set(roundReceipts(round).map(item => item.sequence));
   const sizes = queueEnqueues
@@ -265,6 +311,13 @@ function maxQueueSizeForRound(round) {
   return sizes.length ? Math.max(...sizes) : 0;
 }
 
+/**
+ * Comprueba una adjudicación por ronda, orden por secuencia, recepción
+ * completa, tamaño de cola, descartes, mensajes de ganador y puntaje global.
+ * La comprobación del puntaje usa el leaderboard final del primer cliente;
+ * no compara todos los leaderboards ni prueba todos los intercalados posibles.
+ * @return {!Object} Errores detectados y métricas de la ejecución.
+ */
 function validate() {
   const errors = [];
   const winnerDistribution = new Map();
@@ -411,6 +464,9 @@ function validate() {
   };
 }
 
+/**
+ * Agenda una única validación tras esperar los mensajes y logs pendientes.
+ */
 function scheduleFinalize() {
   if (completed || finalizeScheduled) {
     return;
@@ -419,6 +475,9 @@ function scheduleFinalize() {
   setTimeout(finalize, SETTLE_MS);
 }
 
+/**
+ * Informa las métricas, valida el escenario y fija el código de salida.
+ */
 function finalize() {
   if (completed) {
     return;
@@ -476,6 +535,9 @@ function finalize() {
   process.exitCode = errors.length ? 1 : 0;
 }
 
+/**
+ * Solicita cerrar los sockets abiertos y terminar el servidor hijo.
+ */
 function cleanup() {
   for (const client of clients) {
     if (client.ws && client.ws.readyState === WebSocket.OPEN) {
@@ -487,6 +549,10 @@ function cleanup() {
   }
 }
 
+/**
+ * Informa un fallo una sola vez, limpia recursos y fija exitCode en 1.
+ * @param {string} message Motivo del fallo.
+ */
 function failAndExit(message) {
   if (completed) {
     return;
