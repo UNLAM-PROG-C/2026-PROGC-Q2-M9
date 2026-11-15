@@ -1,4 +1,4 @@
-const {isValidAudioMode} = require('./audio-mode');
+import {isValidAudioMode} from './audio-mode.js';
 
 /**
  * Contrato de una ronda preparada para su consumo (C05 / D03).
@@ -53,4 +53,4 @@ class PreparedRound {
   }
 }
 
-module.exports = PreparedRound;
+export {PreparedRound};

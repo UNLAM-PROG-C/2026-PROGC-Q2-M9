@@ -5,35 +5,38 @@
  * los contratos y transformaciones de audio V4 aún no integran este flujo.
  * El procesamiento de respuestas se realiza en el event loop de Node.js.
  */
-const express = require('express');
-const http = require('http');
-const WebSocket = require('ws');
-const path = require('path');
-const https = require('https');
-const readline = require('readline');
-const AnswerQueue = require('./game/answer-queue');
-const GameCoordinator = require('./game/game-coordinator');
-const SessionCoordinator = require('./game/session-coordinator');
-const {SessionState} = require('./game/session-state');
+import express from 'express';
+import http from 'http';
+import WebSocket, {WebSocketServer} from 'ws';
+import path from 'path';
+import https from 'https';
+import readline from 'readline';
+import {fileURLToPath} from 'url';
+import {AnswerQueue} from './game/answer-queue.js';
+import {GameCoordinator} from './game/game-coordinator.js';
+import {SessionCoordinator} from './game/session-coordinator.js';
+import {SessionState} from './game/session-state.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ALT-02 / C8: modo determinístico para pruebas automatizadas.
 // No altera el modo normal; solo se activa con TRIVIA_TEST_MODE=1.
 const TEST_MODE = process.env.TRIVIA_TEST_MODE === '1';
 const SERVER_PORT = Number.parseInt(process.env.PORT || '3000', 10);
 const TEST_ROUNDS = Math.max(
-  1, Number.parseInt(process.env.TRIVIA_TEST_ROUNDS || '20', 10)
+    1, Number.parseInt(process.env.TRIVIA_TEST_ROUNDS || '20', 10),
 );
 const TEST_START_DELAY_MS = Math.max(
-  100, Number.parseInt(process.env.TRIVIA_TEST_START_DELAY_MS || '1000', 10)
+    100, Number.parseInt(process.env.TRIVIA_TEST_START_DELAY_MS || '1000', 10),
 );
 const TEST_SONG_TITLE = process.env.TRIVIA_TEST_SONG_TITLE || 'ALT02 TEST SONG';
 const TEST_QUEUE_DRAIN_DELAY_MS = Math.max(
-  0, Number.parseInt(process.env.TRIVIA_TEST_QUEUE_DRAIN_DELAY_MS || '0', 10)
+    0, Number.parseInt(process.env.TRIVIA_TEST_QUEUE_DRAIN_DELAY_MS || '0', 10),
 );
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({server});
+const wss = new WebSocketServer({server});
 
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -111,9 +114,9 @@ function configurePlayerEligibilityOnJoin(player) {
   ) {
     player.eligibleFromRoundId = getCurrentRoundId() + 1;
     console.log(
-      `[SC] LATE_JOIN [${player.playerId} | ${player.displayName}] ` +
+        `[SC] LATE_JOIN [${player.playerId} | ${player.displayName}] ` +
       `en ronda ${getCurrentRoundId()}; ` +
-      `elegible desde ronda ${player.eligibleFromRoundId}.`
+      `elegible desde ronda ${player.eligibleFromRoundId}.`,
     );
     return;
   }
@@ -198,7 +201,7 @@ function resetPlayersForNewGame() {
  * @return {!Array<!Object>} Nueva lista de vistas públicas de jugadores.
  */
 function buildLeaderboardView() {
-  return Array.from(playersById.values()).map(player => ({
+  return Array.from(playersById.values()).map((player) => ({
     playerId: player.playerId,
     displayName: player.displayName,
     score: player.score,
@@ -272,8 +275,8 @@ let answerQueueProcessingScheduled = false;
 function enqueueAnswerEvent(answerEvent) {
   answerQueue.enqueue(answerEvent);
   console.log(
-    `[Q+] ANSWER #${String(answerEvent.sequence).padStart(6, '0')} ` +
-    `encolado. queueSize=${answerQueue.size()}.`
+      `[Q+] ANSWER #${String(answerEvent.sequence).padStart(6, '0')} ` +
+    `encolado. queueSize=${answerQueue.size()}.`,
   );
   scheduleAnswerQueueProcessing();
 }
@@ -309,8 +312,8 @@ function processAnswerQueue() {
     while (!answerQueue.isEmpty()) {
       const answerEvent = answerQueue.dequeue();
       console.log(
-        `[Q-] ANSWER #${String(answerEvent.sequence).padStart(6, '0')} ` +
-        `desencolado. queueSize=${answerQueue.size()}.`
+          `[Q-] ANSWER #${String(answerEvent.sequence).padStart(6, '0')} ` +
+        `desencolado. queueSize=${answerQueue.size()}.`,
       );
       gameCoordinator.processAnswerEvent(answerEvent);
     }
@@ -348,8 +351,8 @@ function transitionSessionTo(nextState, reason) {
   const transition = sessionCoordinator.transitionTo(nextState);
 
   console.log(
-    `[SC] ${transition.previousState} -> ${transition.currentState} ` +
-        `(gameId=${transition.gameId}, reason=${reason})`
+      `[SC] ${transition.previousState} -> ${transition.currentState} ` +
+        `(gameId=${transition.gameId}, reason=${reason})`,
   );
 
   return transition;
@@ -361,8 +364,8 @@ function transitionSessionTo(nextState, reason) {
  */
 function getConnectedPlayerIds() {
   return Array.from(playersById.values())
-      .filter(player => player.connected)
-      .map(player => player.playerId);
+      .filter((player) => player.connected)
+      .map((player) => player.playerId);
 }
 
 /**
@@ -424,8 +427,8 @@ function startGameFromLobby(reason) {
 
   const initialSong = playlist[currentSongIndex];
   console.log(
-    `\n[♫] Comienza la ronda nro ${currentRound + 1} de ${maxRounds}: ` +
-    `La canción es "${initialSong.title}"`
+      `\n[♫] Comienza la ronda nro ${currentRound + 1} de ${maxRounds}: ` +
+    `La canción es "${initialSong.title}"`,
   );
 
   broadcast({
@@ -482,8 +485,8 @@ function askConfig() {
         if (startTime <= new Date()) {
           startTime = new Date(Date.now() + 30000);
           console.log(
-            '[!] La hora indicada ya pasó o es muy próxima. ' +
-            'Iniciando en 30 segundos...'
+              '[!] La hora indicada ya pasó o es muy próxima. ' +
+            'Iniciando en 30 segundos...',
           );
         }
 
@@ -571,8 +574,8 @@ function fetchPlaylistFromItunes() {
 
           playlist = filtered;
           console.log(
-            `[*] Playlist cargada: ${playlist.length} ` +
-            'canciones de estudio únicas.'
+              `[*] Playlist cargada: ${playlist.length} ` +
+            'canciones de estudio únicas.',
           );
           resolve();
         } catch (e) {
@@ -618,17 +621,17 @@ function getRoundContext() {
  */
 function finishGameFromAnswer() {
   transitionSessionTo(
-    SessionState.GAME_OVER,
-    'fin de partida por respuesta correcta'
+      SessionState.GAME_OVER,
+      'fin de partida por respuesta correcta',
   );
 
   gameStarted = false;
   gameFinished = true;
 
   const finalWinner = getFinalWinner();
-  const winnerLabel = finalWinner
-    ? `[${finalWinner.playerId} | ${finalWinner.displayName}]`
-    : 'Nadie';
+  const winnerLabel = finalWinner ?
+    `[${finalWinner.playerId} | ${finalWinner.displayName}]` :
+    'Nadie';
 
   broadcast({
     type: 'GAME_OVER',
@@ -647,8 +650,8 @@ function finishGameFromAnswer() {
  */
 function scheduleNextRoundFromAnswer(delaySeconds) {
   transitionSessionTo(
-    SessionState.BETWEEN_ROUNDS,
-    'ronda adjudicada; esperando siguiente ronda'
+      SessionState.BETWEEN_ROUNDS,
+      'ronda adjudicada; esperando siguiente ronda',
   );
 
   gameStarted = false;
@@ -658,8 +661,8 @@ function scheduleNextRoundFromAnswer(delaySeconds) {
     currentSongIndex = (currentSongIndex + 1) % playlist.length;
 
     transitionSessionTo(
-      SessionState.ROUND_ACTIVE,
-      'inicio de siguiente ronda'
+        SessionState.ROUND_ACTIVE,
+        'inicio de siguiente ronda',
     );
 
     gameStarted = true;
@@ -668,8 +671,8 @@ function scheduleNextRoundFromAnswer(delaySeconds) {
 
     const nextSong = playlist[currentSongIndex];
     console.log(
-      `\n[♫] Comienza la ronda nro ${currentRound + 1} de ${maxRounds}: ` +
-      `La canción es "${nextSong.title}"`
+        `\n[♫] Comienza la ronda nro ${currentRound + 1} de ${maxRounds}: ` +
+      `La canción es "${nextSong.title}"`,
     );
 
     broadcast({
@@ -715,8 +718,8 @@ wss.on('connection', (ws) => {
     if (data.type === 'JOIN') {
       if (playerId) {
         console.log(
-          '[!] JOIN duplicado ignorado para ' +
-          `[${playerId} | ${username}]`
+            '[!] JOIN duplicado ignorado para ' +
+          `[${playerId} | ${username}]`,
         );
         return;
       }
@@ -740,13 +743,13 @@ wss.on('connection', (ws) => {
 
       if (sessionState === SessionState.LOBBY) {
         const segundosRestantes = Math.max(
-          0, Math.floor((startTime - Date.now()) / 1000)
+            0, Math.floor((startTime - Date.now()) / 1000),
         );
         ws.send(JSON.stringify({
           type: 'WAITING_START',
           startTime: startTime.toLocaleTimeString(),
           secondsLeft: segundosRestantes,
-          titles: playlist.map(s => s.title),
+          titles: playlist.map((s) => s.title),
         }));
       } else if (sessionState === SessionState.GAME_OVER) {
         ws.send(JSON.stringify({
@@ -760,7 +763,7 @@ wss.on('connection', (ws) => {
           currentRound: getCurrentRoundId(),
           eligibleFromRound: player.eligibleFromRoundId,
           maxRounds,
-          titles: playlist.map(s => s.title),
+          titles: playlist.map((s) => s.title),
         }));
       }
     }
@@ -777,9 +780,9 @@ wss.on('connection', (ws) => {
         const result = sessionCoordinator.markPlayerReady(player.playerId);
 
         console.log(
-          `[SC] READY [${player.playerId} | ${player.displayName}] ` +
+            `[SC] READY [${player.playerId} | ${player.displayName}] ` +
           `(ready=${result.readyCount}/` +
-          `${getConnectedPlayerIds().length})`
+          `${getConnectedPlayerIds().length})`,
         );
 
         broadcastSessionState();
@@ -789,9 +792,9 @@ wss.on('connection', (ws) => {
         }
       } catch (error) {
         console.log(
-          '[SC] READY rechazado para ' +
+            '[SC] READY rechazado para ' +
           `[${player.playerId} | ${player.displayName}]: ` +
-                    error.message
+                    error.message,
         );
       }
 
@@ -810,17 +813,17 @@ wss.on('connection', (ws) => {
         const result = sessionCoordinator.markPlayerNotReady(player.playerId);
 
         console.log(
-          `[SC] UNREADY [${player.playerId} | ${player.displayName}] ` +
+            `[SC] UNREADY [${player.playerId} | ${player.displayName}] ` +
           `(ready=${result.readyCount}/` +
-          `${getConnectedPlayerIds().length})`
+          `${getConnectedPlayerIds().length})`,
         );
 
         broadcastSessionState();
       } catch (error) {
         console.log(
-          '[SC] UNREADY rechazado para ' +
+            '[SC] UNREADY rechazado para ' +
           `[${player.playerId} | ${player.displayName}]: ` +
-                    error.message
+                    error.message,
         );
       }
 
@@ -838,9 +841,9 @@ wss.on('connection', (ws) => {
       if (sessionState !== SessionState.ROUND_ACTIVE ||
           !gameStarted || gameFinished) {
         console.log(
-          '[SCx] ANSWER rechazado para ' +
+            '[SCx] ANSWER rechazado para ' +
           `[${player.playerId} | ${player.displayName}]: ` +
-                    `sesión no activa para respuestas (state=${sessionState}).`
+                    `sesión no activa para respuestas (state=${sessionState}).`,
         );
 
         sendToPlayer(player.playerId, {
@@ -853,10 +856,10 @@ wss.on('connection', (ws) => {
 
       if (!isPlayerEligibleForCurrentRound(player)) {
         console.log(
-          '[SC] ANSWER rechazado para ' +
+            '[SC] ANSWER rechazado para ' +
           `[${player.playerId} | ${player.displayName}]: ` +
                     `no elegible para ronda ${getCurrentRoundId()}; ` +
-                    `elegible desde ronda ${player.eligibleFromRoundId}.`
+                    `elegible desde ronda ${player.eligibleFromRoundId}.`,
         );
 
         sendToPlayer(player.playerId, {
@@ -870,9 +873,9 @@ wss.on('connection', (ws) => {
 
       const answerEvent = createAnswerEvent(player, data.answer);
       console.log(
-        `[→] ANSWER #${String(answerEvent.sequence).padStart(6, '0')} ` +
+          `[→] ANSWER #${String(answerEvent.sequence).padStart(6, '0')} ` +
         `recibido de [${player.playerId} | ${player.displayName}] ` +
-        `en ronda ${answerEvent.roundId}.`
+        `en ronda ${answerEvent.roundId}.`,
       );
       enqueueAnswerEvent(answerEvent);
     }
@@ -884,8 +887,8 @@ wss.on('connection', (ws) => {
       if (player) {
         sessionCoordinator.removePlayerReadiness(player.playerId);
         console.log(
-          '[-] Usuario desconectado: ' +
-          `[${player.playerId} | ${player.displayName}]`
+            '[-] Usuario desconectado: ' +
+          `[${player.playerId} | ${player.displayName}]`,
         );
       } else {
         console.log(`[-] Usuario desconectado: ${username}`);
@@ -899,7 +902,7 @@ wss.on('connection', (ws) => {
                 Date.now() >= startTime.getTime()
       ) {
         startGameFromLobby(
-          'inicio desde LOBBY tras desconexión que satisface barrera READY'
+            'inicio desde LOBBY tras desconexión que satisface barrera READY',
         );
       }
     }
@@ -912,7 +915,7 @@ wss.on('connection', (ws) => {
  * @param {!Object} data Mensaje del protocolo serializable como JSON.
  */
 function broadcast(data) {
-  wss.clients.forEach(client => {
+  wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(JSON.stringify(data));
     }
@@ -979,9 +982,9 @@ let transitionTimeout = null;
 function restartGame() {
   if (sessionCoordinator.getState() !== SessionState.GAME_OVER) {
     console.log(
-      '[SCx] RESTART rechazado: ' +
+        '[SCx] RESTART rechazado: ' +
       `estado actual=${sessionCoordinator.getState()}. ` +
-            'RESTART solo es válido desde GAME_OVER.'
+            'RESTART solo es válido desde GAME_OVER.',
     );
     return false;
   }
@@ -1007,8 +1010,8 @@ function restartGame() {
   startTime = new Date();
 
   console.log(
-    '[SCv] GAME_OVER -> LOBBY por RESTART ' +
-        `(gameId=${restart.gameId}, previousGameId=${restart.previousGameId}).`
+      '[SCv] GAME_OVER -> LOBBY por RESTART ' +
+        `(gameId=${restart.gameId}, previousGameId=${restart.previousGameId}).`,
   );
 
   broadcast({
@@ -1016,7 +1019,7 @@ function restartGame() {
     gameId: restart.gameId,
     sessionState: SessionState.LOBBY,
     maxRounds,
-    titles: playlist.map(song => song.title),
+    titles: playlist.map((song) => song.title),
   });
   broadcastLeaderboard();
   broadcastSessionState();
@@ -1040,8 +1043,8 @@ function forceNextRound() {
   }
 
   transitionSessionTo(
-    SessionState.BETWEEN_ROUNDS,
-    'avance forzado por operador'
+      SessionState.BETWEEN_ROUNDS,
+      'avance forzado por operador',
   );
 
   // Forzar fin de ronda actual
@@ -1069,14 +1072,14 @@ function forceNextRound() {
     currentRound++;
     if (currentRound >= maxRounds || currentRound >= playlist.length) {
       transitionSessionTo(
-        SessionState.GAME_OVER,
-        'fin de partida tras avance forzado'
+          SessionState.GAME_OVER,
+          'fin de partida tras avance forzado',
       );
       gameFinished = true;
       const finalWinner = getFinalWinner();
-      const winnerLabel = finalWinner
-        ? `[${finalWinner.playerId} | ${finalWinner.displayName}]`
-        : 'Nadie';
+      const winnerLabel = finalWinner ?
+        `[${finalWinner.playerId} | ${finalWinner.displayName}]` :
+        'Nadie';
       broadcast({
         type: 'GAME_OVER',
         winner: buildWinnerView(finalWinner),
@@ -1088,8 +1091,8 @@ function forceNextRound() {
       currentSongIndex = (currentSongIndex + 1) % playlist.length;
 
       transitionSessionTo(
-        SessionState.ROUND_ACTIVE,
-        'inicio de siguiente ronda tras avance forzado'
+          SessionState.ROUND_ACTIVE,
+          'inicio de siguiente ronda tras avance forzado',
       );
 
       gameStarted = true;
@@ -1097,8 +1100,8 @@ function forceNextRound() {
       gameCoordinator.beginRound(currentRound + 1);
       const nextSong = playlist[currentSongIndex];
       console.log(
-        `\n[♫] Comienza la ronda nro ${currentRound + 1} de ${maxRounds}: ` +
-        `La canción es "${nextSong.title}"`
+          `\n[♫] Comienza la ronda nro ${currentRound + 1} de ${maxRounds}: ` +
+        `La canción es "${nextSong.title}"`,
       );
 
       broadcast({
@@ -1127,8 +1130,8 @@ function startServerAndGameLoop() {
   server.listen(SERVER_PORT, () => {
     console.log(`[*] Servidor web corriendo en http://localhost:${SERVER_PORT}`);
     console.log(
-      '[*] Esperando la hora de inicio ' +
-      `(${startTime.toLocaleTimeString()}) para disparar la primera ronda...`
+        '[*] Esperando la hora de inicio ' +
+      `(${startTime.toLocaleTimeString()}) para disparar la primera ronda...`,
     );
   });
 
@@ -1144,7 +1147,7 @@ function startServerAndGameLoop() {
 
         if (lastReadyBarrierStatus !== readyBarrierStatus) {
           console.log(
-            `[SC] START pendiente: READY ${readyBarrierStatus}.`
+              `[SC] START pendiente: READY ${readyBarrierStatus}.`,
           );
 
           lastReadyBarrierStatus = readyBarrierStatus;
@@ -1154,9 +1157,9 @@ function startServerAndGameLoop() {
       }
 
       startGameFromLobby(
-        TEST_MODE
-          ? 'inicio automatico de prueba ALT-02'
-          : 'inicio programado con barrera READY satisfecha'
+        TEST_MODE ?
+          'inicio automatico de prueba ALT-02' :
+          'inicio programado con barrera READY satisfecha',
       );
 
       clearInterval(timer);
@@ -1191,18 +1194,18 @@ function startDeterministicTestMode() {
   rl.close();
 
   console.log(
-    `[TEST] Modo ALT-02 activo: rounds=${TEST_ROUNDS}, ` +
-    `answer="${TEST_SONG_TITLE}", port=${SERVER_PORT}.`
+      `[TEST] Modo ALT-02 activo: rounds=${TEST_ROUNDS}, ` +
+    `answer="${TEST_SONG_TITLE}", port=${SERVER_PORT}.`,
   );
   console.log(
-    `[TEST] Inicio automático en ${TEST_START_DELAY_MS} ms; ` +
-    'iTunes y configuración interactiva deshabilitados.'
+      `[TEST] Inicio automático en ${TEST_START_DELAY_MS} ms; ` +
+    'iTunes y configuración interactiva deshabilitados.',
   );
   if (TEST_QUEUE_DRAIN_DELAY_MS > 0) {
     console.log(
-      '[TEST] Drenaje de AnswerQueue demorado ' +
+        '[TEST] Drenaje de AnswerQueue demorado ' +
       `${TEST_QUEUE_DRAIN_DELAY_MS} ms para ejercitar ` +
-      'colisiones controladas.'
+      'colisiones controladas.',
     );
   }
 

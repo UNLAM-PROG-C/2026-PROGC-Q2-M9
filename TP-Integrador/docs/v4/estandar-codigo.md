@@ -36,14 +36,16 @@ Se incluyen tanto los componentes nuevos de V4 como aquellos heredados de versio
 |---|---|---|
 | ESLint | 10.15.0 | Análisis estático |
 | @eslint/js | 10.0.1 | Reglas recomendadas de JavaScript |
-| @stylistic/eslint-plugin | 5.10.0 | Convenciones de formato |
+| eslint-config-google | 0.14.0 | Reglas del estilo JavaScript de Google |
 | eslint-plugin-html | 8.2.1 | Análisis del JavaScript embebido |
 | globals | 16.5.0 | Reconocimiento de entornos de ejecución |
 | EditorConfig | No aplica | Configuración compartida entre editores |
 
 Entorno validado: Node.js 24.20.0, npm 11.19.0, Windows y PowerShell.
 
-Las dependencias de desarrollo están declaradas con versiones exactas en `package.json` y registradas en `package-lock.json`. Los integrantes deberán utilizar una versión de Node.js compatible con estas herramientas. Se recomienda reproducir el entorno validado; la compatibilidad con otras versiones deberá verificarse.
+Las dependencias de desarrollo están declaradas en `package.json` y resueltas en `package-lock.json`. Los integrantes deberán utilizar una versión de Node.js compatible con estas herramientas. Se recomienda reproducir el entorno validado; la compatibilidad con otras versiones deberá verificarse.
+
+La configuración Google (repositorio upstream archivado) se integra en el formato plano de ESLint. Se omiten `require-jsdoc` y `valid-jsdoc`, reglas centrales eliminadas de ESLint 10; la revisión de JSDoc continúa siendo manual según la decisión de alcance. Se conserva desactivada `linebreak-style` para respetar la decisión de no normalizar finales de línea en bloque. Se configura explícitamente `eqeqeq` para exigir igualdad estricta, con excepción para `null`.
 
 ## 4. Convenciones adoptadas
 
@@ -65,13 +67,16 @@ Las dependencias de desarrollo están declaradas con versiones exactas en `packa
 | Declaraciones de variables | Preferir const cuando no exista reasignación |
 | Comparaciones | Igualdad estricta, con la excepción configurada para null |
 
-Se permite omitir paréntesis en parámetros simples de funciones flecha. Las reglas automatizadas constituyen una aproximación al estándar de Google y no reemplazan la revisión manual. Las excepciones de la guía, las continuaciones de línea y otros aspectos no cubiertos automáticamente deberán evaluarse durante la revisión de código.
+Se exigen paréntesis en los parámetros de las funciones flecha, incluso cuando hay un solo parámetro. Las reglas automatizadas constituyen una aproximación al estándar de Google y no reemplazan la revisión manual. Las excepciones de la guía, las continuaciones de línea y otros aspectos no cubiertos automáticamente deberán evaluarse durante la revisión de código.
 
 ## 5. Decisiones y excepciones de alcance
 
 ### 5.1. Sistema de módulos
 
-Se conserva CommonJS para el código existente de la aplicación. No se realizará una migración generalizada a ES Modules como parte de esta iniciativa. Esta decisión constituye una desviación respecto de las convenciones de módulos de la guía de Google y evita modificaciones estructurales ajenas a los objetivos funcionales de V4.
+El proyecto usa ES Modules mediante `"type": "module"` en `package.json`.
+Los módulos propios usan importaciones con extensión `.js` y exportaciones
+con nombre; las dependencias se importan según su interfaz disponible para
+ES Modules. El JavaScript embebido en HTML sigue siendo un script clásico.
 
 ### 5.2. Documentación JSDoc
 

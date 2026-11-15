@@ -4,18 +4,21 @@
  * Comprueba propiedades estructurales seleccionadas y genera tres WAV.
  * Los tiempos son mediciones individuales; no prueban speedup ni paralelismo.
  */
-const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
-const {spawn} = require('child_process');
-const {performance} = require('perf_hooks');
-const ffmpegPath = require('ffmpeg-static');
+import assert from 'assert';
+import fs from 'fs';
+import path from 'path';
+import {spawn} from 'child_process';
+import {performance} from 'perf_hooks';
+import {fileURLToPath} from 'url';
+import ffmpegPath from 'ffmpeg-static';
 
-const {AudioMode} = require('../../../server/audio/model/audio-mode');
-const {
+import {AudioMode} from '../../../server/audio/model/audio-mode.js';
+import {
   transformPcm,
   DEFAULT_LOW_PASS_CUTOFF_HZ,
-} = require('../../../server/audio/transform/audio-transform');
+} from '../../../server/audio/transform/audio-transform.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const SEARCH_URL =
   'https://itunes.apple.com/search?term=daft%20punk&entity=song&limit=5';
@@ -39,7 +42,7 @@ async function fetchPreview() {
 
   if (!searchResponse.ok) {
     throw new Error(
-      `iTunes Search API respondió HTTP ${searchResponse.status}`
+        `iTunes Search API respondió HTTP ${searchResponse.status}`,
     );
   }
 
@@ -51,7 +54,7 @@ async function fetchPreview() {
   }
 
   console.log(
-    `[C07] Preview seleccionado: ${song.artistName} - ${song.trackName}`
+      `[C07] Preview seleccionado: ${song.artistName} - ${song.trackName}`,
   );
 
   const previewResponse = await fetch(song.previewUrl, {
@@ -62,7 +65,7 @@ async function fetchPreview() {
 
   if (!previewResponse.ok) {
     throw new Error(
-      `El preview respondió HTTP ${previewResponse.status}`
+        `El preview respondió HTTP ${previewResponse.status}`,
     );
   }
 
@@ -116,10 +119,10 @@ function decodeToPcm(compressed) {
     ffmpeg.on('close', (code) => {
       if (code !== 0) {
         reject(
-          new Error(
-            `FFmpeg terminó con código ${code}: ` +
-            `${Buffer.concat(stderr).toString('utf8')}`
-          )
+            new Error(
+                `FFmpeg terminó con código ${code}: ` +
+            `${Buffer.concat(stderr).toString('utf8')}`,
+            ),
         );
         return;
       }
@@ -190,7 +193,7 @@ function runTransform(pcm, mode, options = {}) {
   const elapsedMs = performance.now() - start;
 
   console.log(
-    `[C07] ${mode}: ${result.length} bytes, ${elapsedMs.toFixed(2)} ms`
+      `[C07] ${mode}: ${result.length} bytes, ${elapsedMs.toFixed(2)} ms`,
   );
 
   return result;
@@ -208,15 +211,15 @@ function runTransform(pcm, mode, options = {}) {
  */
 function validateModes(original, normal, reversed, lowPass) {
   assert.notStrictEqual(
-    normal,
-    original,
-    'NORMAL debe devolver un Buffer independiente.'
+      normal,
+      original,
+      'NORMAL debe devolver un Buffer independiente.',
   );
 
   assert.deepStrictEqual(
-    normal,
-    original,
-    'NORMAL debe conservar las muestras.'
+      normal,
+      original,
+      'NORMAL debe conservar las muestras.',
   );
 
   assert.strictEqual(reversed.length, original.length);
@@ -226,21 +229,21 @@ function validateModes(original, normal, reversed, lowPass) {
   const lastOriginal = original.subarray(original.length - FRAME_SIZE);
 
   assert.deepStrictEqual(
-    reversed.subarray(0, FRAME_SIZE),
-    lastOriginal,
-    'REVERSE debe comenzar con el último frame original.'
+      reversed.subarray(0, FRAME_SIZE),
+      lastOriginal,
+      'REVERSE debe comenzar con el último frame original.',
   );
 
   assert.deepStrictEqual(
-    reversed.subarray(reversed.length - FRAME_SIZE),
-    firstOriginal,
-    'REVERSE debe terminar con el primer frame original.'
+      reversed.subarray(reversed.length - FRAME_SIZE),
+      firstOriginal,
+      'REVERSE debe terminar con el primer frame original.',
   );
 
   assert.notDeepStrictEqual(
-    lowPass,
-    original,
-    'LOW_PASS debe modificar las muestras.'
+      lowPass,
+      original,
+      'LOW_PASS debe modificar las muestras.',
   );
 }
 
@@ -250,7 +253,7 @@ function validateModes(original, normal, reversed, lowPass) {
  */
 async function main() {
   console.log(
-    `[C07] LOW_PASS cutoff por defecto: ${DEFAULT_LOW_PASS_CUTOFF_HZ} Hz`
+      `[C07] LOW_PASS cutoff por defecto: ${DEFAULT_LOW_PASS_CUTOFF_HZ} Hz`,
   );
 
   const compressed = await fetchPreview();
@@ -280,7 +283,8 @@ async function main() {
   }
 
   console.log(
-    '[C07] PASS: NORMAL, REVERSE y LOW_PASS comparten la misma interfaz pura.'
+      '[C07] PASS: NORMAL, REVERSE y LOW_PASS comparten ' +
+      'la misma interfaz pura.',
   );
 }
 

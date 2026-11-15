@@ -1,4 +1,4 @@
-const {isValidAudioMode} = require('./audio-mode');
+import {isValidAudioMode} from './audio-mode.js';
 
 /**
  * Contrato de entrada de un trabajo de preparación de audio (C05 / D03).
@@ -54,4 +54,4 @@ class AudioJob {
   }
 }
 
-module.exports = AudioJob;
+export {AudioJob};

@@ -3,13 +3,13 @@
  * Verifica admisión, delegación, deduplicación y limpieza de IN_FLIGHT.
  * Usa un worker pool falso; no ejecuta DSP, workers reales, prefetch o I/O.
  */
-const assert = require('assert');
+import assert from 'assert';
 
-const AudioPreparationManager = require(
-  '../server/audio/audio-preparation-manager'
-);
-const AudioResult = require('../server/audio/model/audio-result');
-const {AudioMode} = require('../server/audio/model/audio-mode');
+import {
+  AudioPreparationManager,
+} from '../server/audio/audio-preparation-manager.js';
+import {AudioResult} from '../server/audio/model/audio-result.js';
+import {AudioMode} from '../server/audio/model/audio-mode.js';
 
 /**
  * Fake controlable que registra jobs y permite resolver o rechazar por jobId.
@@ -85,22 +85,22 @@ function createSuccessResult(job) {
  */
 function testConstructorValidation() {
   assert.throws(
-    () => new AudioPreparationManager({workerPool: null}),
-    TypeError
+      () => new AudioPreparationManager({workerPool: null}),
+      TypeError,
   );
 
   assert.throws(
-    () => new AudioPreparationManager({workerPool: {}}),
-    TypeError
+      () => new AudioPreparationManager({workerPool: {}}),
+      TypeError,
   );
 
   assert.throws(
-    () =>
-      new AudioPreparationManager({
-        workerPool: {submit() {}},
-        createJobId: 'invalid',
-      }),
-    TypeError
+      () =>
+        new AudioPreparationManager({
+          workerPool: {submit() {}},
+          createJobId: 'invalid',
+        }),
+      TypeError,
   );
 }
 
@@ -227,8 +227,8 @@ async function testRejectedPromiseClearsInFlight() {
   workerPool.reject(request.job.jobId, expectedError);
 
   await assert.rejects(
-    request.resultPromise,
-    (error) => error === expectedError
+      request.resultPromise,
+      (error) => error === expectedError,
   );
   assert.strictEqual(manager.isInFlight(3, 1), false);
   assert.strictEqual(manager.getInFlightCount(), 0);
@@ -248,14 +248,14 @@ function testSynchronousSubmitFailureClearsInFlight() {
   });
 
   assert.throws(
-    () =>
-      manager.requestPreparation({
-        gameId: 4,
-        roundId: 1,
-        mode: AudioMode.NORMAL,
-        source: {previewUrl: 'https://example.test/fail.m4a'},
-      }),
-    (error) => error === expectedError
+      () =>
+        manager.requestPreparation({
+          gameId: 4,
+          roundId: 1,
+          mode: AudioMode.NORMAL,
+          source: {previewUrl: 'https://example.test/fail.m4a'},
+        }),
+      (error) => error === expectedError,
   );
   assert.strictEqual(manager.isInFlight(4, 1), false);
   assert.strictEqual(manager.getInFlightCount(), 0);
@@ -274,7 +274,7 @@ async function run() {
   testSynchronousSubmitFailureClearsInFlight();
 
   console.log(
-    '[C14] PASS: AudioPreparationManager coordina y deduplica trabajos.'
+      '[C14] PASS: AudioPreparationManager coordina y deduplica trabajos.',
   );
 }
 

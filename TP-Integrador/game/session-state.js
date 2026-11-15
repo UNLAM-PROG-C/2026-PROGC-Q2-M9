@@ -31,7 +31,7 @@ function isSessionState(value) {
   return Object.values(SessionState).includes(value);
 }
 
-module.exports = {
+export {
   SessionState,
   isSessionState,
 };

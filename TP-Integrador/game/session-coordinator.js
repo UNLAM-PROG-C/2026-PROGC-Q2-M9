@@ -1,4 +1,4 @@
-const {SessionState, isSessionState} = require('./session-state');
+import {SessionState, isSessionState} from './session-state.js';
 
 /**
  * Gestiona el ciclo de vida y la barrera READY de una partida (V3).
@@ -146,7 +146,7 @@ class SessionCoordinator {
     }
 
     return uniquePlayerIds.every(
-      playerId => this.readyPlayerIds.has(playerId)
+        (playerId) => this.readyPlayerIds.has(playerId),
     );
   }
 
@@ -158,7 +158,7 @@ class SessionCoordinator {
   canStart(playerIds) {
     return (
       this.sessionState === SessionState.LOBBY &&
-            this.areAllPlayersReady(playerIds)
+      this.areAllPlayersReady(playerIds)
     );
   }
 
@@ -207,7 +207,7 @@ class SessionCoordinator {
   transitionTo(nextState) {
     if (!this.canTransitionTo(nextState)) {
       throw new Error(
-        `Transición de sesión inválida: ${this.sessionState} -> ${nextState}`
+          `Transición de sesión inválida: ${this.sessionState} -> ${nextState}`,
       );
     }
 
@@ -230,7 +230,7 @@ class SessionCoordinator {
   restartSession() {
     if (this.sessionState !== SessionState.GAME_OVER) {
       throw new Error(
-        `No se puede reiniciar la sesión desde ${this.sessionState}`
+          `No se puede reiniciar la sesión desde ${this.sessionState}`,
       );
     }
 
@@ -255,11 +255,11 @@ class SessionCoordinator {
   assertLobbyForReadyChange() {
     if (this.sessionState !== SessionState.LOBBY) {
       throw new Error(
-        'READY solo puede modificarse en LOBBY. ' +
-        `Estado actual: ${this.sessionState}`
+          'READY solo puede modificarse en LOBBY. ' +
+        `Estado actual: ${this.sessionState}`,
       );
     }
   }
 }
 
-module.exports = SessionCoordinator;
+export {SessionCoordinator};
