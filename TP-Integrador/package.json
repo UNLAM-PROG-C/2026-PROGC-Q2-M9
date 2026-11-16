@@ -11,6 +11,7 @@
     "test:c03": "node tests/spikes/c03-audio-stack-spike.js",
     "test:c06": "node tests/spikes/audio/c06-reverse-end-to-end.js",
     "test:c07": "node tests/spikes/audio/c07-transform-modes.js",
+    "test:c09": "node tests/audio-worker-test.js",
     "lint": "eslint . public/index.html",
     "lint:report": "eslint . public/index.html --format json --output-file lint-report.json",
     "test:c14": "node tests/audio-preparation-manager-test.js"
