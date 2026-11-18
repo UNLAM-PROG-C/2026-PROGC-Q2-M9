@@ -39,6 +39,15 @@ function validateRestartTransition(previousGameId, gameId, currentGameId) {
   }
 }
 
+function buildRestartSummary(
+    previousGameId,
+    gameId,
+    cancelledQueued,
+    clearedInFlight,
+) {
+  return {previousGameId, gameId, cancelledQueued, clearedInFlight};
+}
+
 /**
  * Builds the logical identity used to track one round inside one game.
  * @param {number} gameId Game generation identifier.
@@ -204,14 +213,16 @@ class AudioPreparationManager {
    */
   handleGameRestart({previousGameId, gameId}) {
     validateRestartTransition(
-        previousGameId,
-        gameId,
-        this.currentGameId,
+        previousGameId, gameId, this.currentGameId,
     );
     this.currentGameId = gameId;
+    const cancelledQueued =
+      this.workerPool.cancelQueuedByGameId(previousGameId);
     const clearedInFlight =
-    this.clearInFlightTrackingForGame(previousGameId);
-    return {previousGameId, gameId, clearedInFlight};
+      this.clearInFlightTrackingForGame(previousGameId);
+    return buildRestartSummary(
+        previousGameId, gameId, cancelledQueued, clearedInFlight,
+    );
   }
 
   /**
