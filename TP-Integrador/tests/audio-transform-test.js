@@ -61,6 +61,19 @@ function transform(pcm, mode, overrides = {}) {
   });
 }
 
+function assertRightChannelPreserved(frames) {
+  const actual = frames.map(([, right]) => right);
+  const expected = STEP_FRAMES.map(([, right]) => right);
+  assert.deepStrictEqual(actual, expected);
+}
+
+function assertLeftChannelSmoothed(frames) {
+  const [[firstLeft], [secondLeft], [thirdLeft]] = frames;
+  assert.strictEqual(firstLeft, 0);
+  assert.ok(secondLeft > 0 && secondLeft < STEP_LEVEL);
+  assert.ok(thirdLeft > secondLeft && thirdLeft < STEP_LEVEL);
+}
+
 test('NORMAL copia las muestras sin modificar la entrada', () => {
   const input = pcmFromStereoFrames(STEREO_FRAMES);
   const snapshot = Buffer.from(input);
@@ -95,14 +108,8 @@ test('LOW_PASS suaviza la señal y no mezcla canales', () => {
   assert.strictEqual(output.length, input.length);
   assert.notDeepStrictEqual(output, input);
   assert.deepStrictEqual(input, snapshot);
-  assert.deepStrictEqual(
-      frames.map(([, right]) => right),
-      STEP_FRAMES.map(([, right]) => right),
-  );
-  const [[firstLeft], [secondLeft], [thirdLeft]] = frames;
-  assert.strictEqual(firstLeft, 0);
-  assert.ok(secondLeft > 0 && secondLeft < STEP_LEVEL);
-  assert.ok(thirdLeft > secondLeft && thirdLeft < STEP_LEVEL);
+  assertRightChannelPreserved(frames);
+  assertLeftChannelSmoothed(frames);
 });
 
 test('LOW_PASS admite una frecuencia de corte configurable', () => {
@@ -196,4 +203,3 @@ test('el llamador puede continuar después de un error controlado', () => {
   const input = pcmFromStereoFrames(RECOVERY_FRAMES);
   assert.deepStrictEqual(transform(input, AudioMode.NORMAL), input);
 });
-
