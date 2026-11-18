@@ -93,8 +93,8 @@ function assertWorkersReused(workers) {
 async function testSixJobsWithThreeWorkers() {
   const {pool, workers} = createPoolHarness();
   const jobs = createJobs();
-  const first = await runWave(pool, workers, jobs.slice(0, 3));
-  const second = await runWave(pool, workers, jobs.slice(3));
+  const first = await runWave(pool, workers, jobs.slice(0, DEFAULT_POOL_SIZE));
+  const second = await runWave(pool, workers, jobs.slice(DEFAULT_POOL_SIZE));
   assert.equal(first.length + second.length, TOTAL_JOBS);
   assertWorkersReused(workers);
   await pool.terminate();
@@ -102,10 +102,11 @@ async function testSixJobsWithThreeWorkers() {
 
 async function testControlledSaturationFailure() {
   const {pool, workers} = createPoolHarness();
-  const jobs = createJobs(4);
-  const running = jobs.slice(0, 3).map((job) => pool.submit(job));
+  const jobs = createJobs(DEFAULT_POOL_SIZE + 1);
+  const runningJobs = jobs.slice(0, DEFAULT_POOL_SIZE);
+  const running = runningJobs.map((job) => pool.submit(job));
   await assert.rejects(
-      pool.submit(jobs[3]),
+      pool.submit(jobs[DEFAULT_POOL_SIZE]),
       /sin capacidad disponible/,
   );
   completeBusyWorkers(workers);
