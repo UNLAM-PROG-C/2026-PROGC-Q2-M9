@@ -17,7 +17,8 @@
     "test:c12": "node tests/job-queue-test.js && node tests/audio-job-queue-dispatch-test.js",
     "lint": "eslint . public/index.html",
     "lint:report": "eslint . public/index.html --format json --output-file lint-report.json",
-    "test:c14": "node tests/audio-preparation-manager-test.js"
+    "test:c14": "node tests/audio-preparation-manager-test.js",
+    "test:c18": "node tests/restart/audio-restart-test.js"
   },
   "dependencies": {
     "express": "^4.19.2",
