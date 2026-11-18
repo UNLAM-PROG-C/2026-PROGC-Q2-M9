@@ -87,8 +87,8 @@ class GameCoordinator {
     this.activeRoundId = null;
     this.roundWinnerPlayerId = null;
     this.log(
-      '[GC] Estado de juego reiniciado. ' +
-      'activeRoundId=null, winner=null.'
+        '[GC] Estado de juego reiniciado. ' +
+      'activeRoundId=null, winner=null.',
     );
   }
 
@@ -112,26 +112,26 @@ class GameCoordinator {
     if (answerEvent.roundId === this.activeRoundId &&
         this.roundWinnerPlayerId !== null) {
       this.log(
-        `[GCx] ANSWER #${sequenceLabel} descartado: ` +
+          `[GCx] ANSWER #${sequenceLabel} descartado: ` +
         `ronda ${answerEvent.roundId} ya adjudicada a ` +
-        `${this.roundWinnerPlayerId}.`
+        `${this.roundWinnerPlayerId}.`,
       );
       return;
     }
 
     if (!context.gameStarted || context.gameFinished) {
       this.log(
-        `[GCx] ANSWER #${sequenceLabel} descartado: ` +
-        'partida/ronda no activa.'
+          `[GCx] ANSWER #${sequenceLabel} descartado: ` +
+        'partida/ronda no activa.',
       );
       return;
     }
 
     if (answerEvent.roundId !== context.currentRound + 1) {
       this.log(
-        `[GCx] ANSWER #${sequenceLabel} descartado: ` +
+          `[GCx] ANSWER #${sequenceLabel} descartado: ` +
         `ronda ${answerEvent.roundId} ya no es la ronda activa ` +
-        `${context.currentRound + 1}.`
+        `${context.currentRound + 1}.`,
       );
       return;
     }
@@ -139,22 +139,22 @@ class GameCoordinator {
     const player = this.playersById.get(answerEvent.playerId);
     if (!player) {
       this.log(
-        `[GCx] ANSWER #${sequenceLabel} descartado: ` +
-        `playerId ${answerEvent.playerId} inexistente.`
+          `[GCx] ANSWER #${sequenceLabel} descartado: ` +
+        `playerId ${answerEvent.playerId} inexistente.`,
       );
       return;
     }
 
     const correctSong = context.playlist[context.currentSongIndex];
     const userAnswer = this.normalizeText(answerEvent.answer);
-    const correctNormalized = correctSong
-      ? this.normalizeText(correctSong.title)
-      : '';
+    const correctNormalized = correctSong ?
+      this.normalizeText(correctSong.title) :
+      '';
 
     this.log(
-      `[GC] ANSWER #${sequenceLabel} adjudicando para ` +
+        `[GC] ANSWER #${sequenceLabel} adjudicando para ` +
       `[${player.playerId} | ${player.displayName}] ` +
-      `en ronda ${answerEvent.roundId}.`
+      `en ronda ${answerEvent.roundId}.`,
     );
 
     if (correctSong && userAnswer === correctNormalized) {
@@ -182,9 +182,9 @@ class GameCoordinator {
     // Segunda defensa de la misma invariante dentro del punto de adjudicación.
     if (this.roundWinnerPlayerId !== null) {
       this.log(
-        `[GCx] ANSWER #${sequenceLabel} descartado: ` +
+          `[GCx] ANSWER #${sequenceLabel} descartado: ` +
         `ya existe ganador ${this.roundWinnerPlayerId} ` +
-        `para la ronda ${answerEvent.roundId}.`
+        `para la ronda ${answerEvent.roundId}.`,
       );
       return;
     }
@@ -194,18 +194,18 @@ class GameCoordinator {
     // adjudicación autoritativo de la ronda.
     this.roundWinnerPlayerId = player.playerId;
     this.log(
-      `[GC✓] Ronda ${answerEvent.roundId} adjudicada a ` +
+        `[GC✓] Ronda ${answerEvent.roundId} adjudicada a ` +
       `[${player.playerId} | ${player.displayName}] ` +
-      `por ANSWER #${sequenceLabel}.`
+      `por ANSWER #${sequenceLabel}.`,
     );
 
     const pointsWon = Math.max(10, 100 - (player.attempts * 5));
     player.score += pointsWon;
 
     this.log(
-      `[✓] [${player.playerId} | ${player.displayName}] ` +
+        `[✓] [${player.playerId} | ${player.displayName}] ` +
       `acertó la canción "${correctSong.title}" y sumó ` +
-      `${pointsWon} pts. Total: ${player.score}.`
+      `${pointsWon} pts. Total: ${player.score}.`,
     );
 
     this.broadcastLeaderboard();
@@ -246,9 +246,9 @@ class GameCoordinator {
     const potentialPoints = Math.max(10, 100 - ((player.attempts - 1) * 5));
 
     this.log(
-      `[✗] [${player.playerId} | ${player.displayName}] ` +
+        `[✗] [${player.playerId} | ${player.displayName}] ` +
       `hizo un intento erróneo: "${answerEvent.answer}". ` +
-      `Intentos: ${player.attempts}.`
+      `Intentos: ${player.attempts}.`,
     );
 
     this.sendToPlayer(player.playerId, {
@@ -259,4 +259,4 @@ class GameCoordinator {
   }
 }
 
-module.exports = GameCoordinator;
+export {GameCoordinator};

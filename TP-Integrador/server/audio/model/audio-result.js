@@ -1,4 +1,4 @@
-const {isValidAudioMode} = require('./audio-mode');
+import {isValidAudioMode} from './audio-mode.js';
 
 /**
  * Contrato de salida de un trabajo de preparación de audio (C05 / D03).
@@ -55,25 +55,25 @@ class AudioResult {
     if (ok) {
       if (resource === undefined || resource === null) {
         throw new TypeError(
-          'AudioResult exitoso debe incluir resource.'
+            'AudioResult exitoso debe incluir resource.',
         );
       }
 
       if (error !== null) {
         throw new TypeError(
-          'AudioResult exitoso no debe incluir error.'
+            'AudioResult exitoso no debe incluir error.',
         );
       }
     } else {
       if (resource !== null) {
         throw new TypeError(
-          'AudioResult fallido no debe incluir resource.'
+            'AudioResult fallido no debe incluir resource.',
         );
       }
 
       if (typeof error !== 'string' || error.trim() === '') {
         throw new TypeError(
-          'AudioResult fallido debe incluir un error no vacío.'
+            'AudioResult fallido debe incluir un error no vacío.',
         );
       }
     }
@@ -95,4 +95,4 @@ class AudioResult {
   }
 }
 
-module.exports = AudioResult;
+export {AudioResult};

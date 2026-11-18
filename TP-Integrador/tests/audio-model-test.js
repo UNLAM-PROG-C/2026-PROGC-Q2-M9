@@ -3,12 +3,12 @@
  * Ejercita constructores válidos y rechazos seleccionados mediante assert.
  * No ejecuta trabajos de audio ni verifica recursos externos, workers o I/O.
  */
-const assert = require('assert');
+import assert from 'assert';
 
-const AudioJob = require('../server/audio/model/audio-job');
-const AudioResult = require('../server/audio/model/audio-result');
-const PreparedRound = require('../server/audio/model/prepared-round');
-const {AudioMode} = require('../server/audio/model/audio-mode');
+import {AudioJob} from '../server/audio/model/audio-job.js';
+import {AudioResult} from '../server/audio/model/audio-result.js';
+import {PreparedRound} from '../server/audio/model/prepared-round.js';
+import {AudioMode} from '../server/audio/model/audio-mode.js';
 
 /**
  * Comprueba que la operación arroje TypeError, sin exigir un texto concreto.
@@ -41,63 +41,63 @@ function testAudioJob() {
   assert.strictEqual(job.source, source);
 
   expectTypeError(
-    () =>
-      new AudioJob({
-        jobId: '',
-        gameId: 1,
-        roundId: 1,
-        mode: AudioMode.NORMAL,
-        source,
-      }),
-    'jobId vacío debe rechazarse'
+      () =>
+        new AudioJob({
+          jobId: '',
+          gameId: 1,
+          roundId: 1,
+          mode: AudioMode.NORMAL,
+          source,
+        }),
+      'jobId vacío debe rechazarse',
   );
 
   expectTypeError(
-    () =>
-      new AudioJob({
-        jobId: 'job-2',
-        gameId: 0,
-        roundId: 1,
-        mode: AudioMode.NORMAL,
-        source,
-      }),
-    'gameId inválido debe rechazarse'
+      () =>
+        new AudioJob({
+          jobId: 'job-2',
+          gameId: 0,
+          roundId: 1,
+          mode: AudioMode.NORMAL,
+          source,
+        }),
+      'gameId inválido debe rechazarse',
   );
 
   expectTypeError(
-    () =>
-      new AudioJob({
-        jobId: 'job-3',
-        gameId: 1,
-        roundId: 0,
-        mode: AudioMode.NORMAL,
-        source,
-      }),
-    'roundId inválido debe rechazarse'
+      () =>
+        new AudioJob({
+          jobId: 'job-3',
+          gameId: 1,
+          roundId: 0,
+          mode: AudioMode.NORMAL,
+          source,
+        }),
+      'roundId inválido debe rechazarse',
   );
 
   expectTypeError(
-    () =>
-      new AudioJob({
-        jobId: 'job-4',
-        gameId: 1,
-        roundId: 1,
-        mode: 'UNKNOWN',
-        source,
-      }),
-    'mode desconocido debe rechazarse'
+      () =>
+        new AudioJob({
+          jobId: 'job-4',
+          gameId: 1,
+          roundId: 1,
+          mode: 'UNKNOWN',
+          source,
+        }),
+      'mode desconocido debe rechazarse',
   );
 
   expectTypeError(
-    () =>
-      new AudioJob({
-        jobId: 'job-5',
-        gameId: 1,
-        roundId: 1,
-        mode: AudioMode.NORMAL,
-        source: null,
-      }),
-    'source ausente debe rechazarse'
+      () =>
+        new AudioJob({
+          jobId: 'job-5',
+          gameId: 1,
+          roundId: 1,
+          mode: AudioMode.NORMAL,
+          source: null,
+        }),
+      'source ausente debe rechazarse',
   );
 }
 
@@ -135,55 +135,55 @@ function testAudioResult() {
   assert.strictEqual(failure.error, 'No se pudo decodificar el audio.');
 
   expectTypeError(
-    () =>
-      new AudioResult({
-        jobId: 'job-12',
-        gameId: 2,
-        roundId: 5,
-        mode: AudioMode.REVERSE,
-        ok: true,
-      }),
-    'resultado exitoso sin resource debe rechazarse'
+      () =>
+        new AudioResult({
+          jobId: 'job-12',
+          gameId: 2,
+          roundId: 5,
+          mode: AudioMode.REVERSE,
+          ok: true,
+        }),
+      'resultado exitoso sin resource debe rechazarse',
   );
 
   expectTypeError(
-    () =>
-      new AudioResult({
-        jobId: 'job-13',
-        gameId: 2,
-        roundId: 6,
-        mode: AudioMode.REVERSE,
-        ok: true,
-        resource: 'audio.wav',
-        error: 'error contradictorio',
-      }),
-    'éxito con error debe rechazarse'
+      () =>
+        new AudioResult({
+          jobId: 'job-13',
+          gameId: 2,
+          roundId: 6,
+          mode: AudioMode.REVERSE,
+          ok: true,
+          resource: 'audio.wav',
+          error: 'error contradictorio',
+        }),
+      'éxito con error debe rechazarse',
   );
 
   expectTypeError(
-    () =>
-      new AudioResult({
-        jobId: 'job-14',
-        gameId: 2,
-        roundId: 7,
-        mode: AudioMode.REVERSE,
-        ok: false,
-        resource: 'audio.wav',
-        error: 'falló',
-      }),
-    'fallo con resource debe rechazarse'
+      () =>
+        new AudioResult({
+          jobId: 'job-14',
+          gameId: 2,
+          roundId: 7,
+          mode: AudioMode.REVERSE,
+          ok: false,
+          resource: 'audio.wav',
+          error: 'falló',
+        }),
+      'fallo con resource debe rechazarse',
   );
 
   expectTypeError(
-    () =>
-      new AudioResult({
-        jobId: 'job-15',
-        gameId: 2,
-        roundId: 8,
-        mode: AudioMode.REVERSE,
-        ok: false,
-      }),
-    'fallo sin error debe rechazarse'
+      () =>
+        new AudioResult({
+          jobId: 'job-15',
+          gameId: 2,
+          roundId: 8,
+          mode: AudioMode.REVERSE,
+          ok: false,
+        }),
+      'fallo sin error debe rechazarse',
   );
 }
 
@@ -210,44 +210,44 @@ function testPreparedRound() {
   assert.strictEqual(round.mode, AudioMode.NORMAL);
   assert.strictEqual(round.song, song);
   assert.strictEqual(
-    round.resource,
-    'https://example.test/original.m4a'
+      round.resource,
+      'https://example.test/original.m4a',
   );
 
   expectTypeError(
-    () =>
-      new PreparedRound({
-        gameId: 3,
-        roundId: 1,
-        mode: 'UNKNOWN',
-        song,
-        resource: 'audio.wav',
-      }),
-    'mode desconocido debe rechazarse'
+      () =>
+        new PreparedRound({
+          gameId: 3,
+          roundId: 1,
+          mode: 'UNKNOWN',
+          song,
+          resource: 'audio.wav',
+        }),
+      'mode desconocido debe rechazarse',
   );
 
   expectTypeError(
-    () =>
-      new PreparedRound({
-        gameId: 3,
-        roundId: 1,
-        mode: AudioMode.NORMAL,
-        song: null,
-        resource: 'audio.wav',
-      }),
-    'song ausente debe rechazarse'
+      () =>
+        new PreparedRound({
+          gameId: 3,
+          roundId: 1,
+          mode: AudioMode.NORMAL,
+          song: null,
+          resource: 'audio.wav',
+        }),
+      'song ausente debe rechazarse',
   );
 
   expectTypeError(
-    () =>
-      new PreparedRound({
-        gameId: 3,
-        roundId: 1,
-        mode: AudioMode.NORMAL,
-        song,
-        resource: null,
-      }),
-    'resource ausente debe rechazarse'
+      () =>
+        new PreparedRound({
+          gameId: 3,
+          roundId: 1,
+          mode: AudioMode.NORMAL,
+          song,
+          resource: null,
+        }),
+      'resource ausente debe rechazarse',
   );
 }
 
@@ -260,7 +260,7 @@ function run() {
   testPreparedRound();
 
   console.log(
-    '[C05] PASS: contratos AudioJob, AudioResult y PreparedRound validados.'
+      '[C05] PASS: contratos AudioJob, AudioResult y PreparedRound validados.',
   );
 }
 

@@ -27,7 +27,7 @@ function isValidAudioMode(mode) {
   return Object.values(AudioMode).includes(mode);
 }
 
-module.exports = {
+export {
   AudioMode,
   isValidAudioMode,
 };

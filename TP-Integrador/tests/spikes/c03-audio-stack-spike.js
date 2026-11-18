@@ -4,8 +4,8 @@
  * como PCM s16le estéreo a 44100 Hz. No aplica transformaciones ni genera WAV.
  * Depende de la red, la API externa y la disponibilidad del binario FFmpeg.
  */
-const {spawn} = require('child_process');
-const ffmpegPath = require('ffmpeg-static');
+import {spawn} from 'child_process';
+import ffmpegPath from 'ffmpeg-static';
 
 const SEARCH_URL =
   'https://itunes.apple.com/search?term=daft%20punk&entity=song&limit=5';
@@ -33,7 +33,7 @@ async function fetchPreviewUrl() {
   }
 
   console.log(
-    `[C03] Preview seleccionado: ${song.artistName} - ${song.trackName}`
+      `[C03] Preview seleccionado: ${song.artistName} - ${song.trackName}`,
   );
   console.log(`[C03] previewUrl: ${song.previewUrl}`);
 
@@ -107,10 +107,10 @@ function decodeToPcm(inputBytes) {
     ffmpeg.on('close', (code) => {
       if (code !== 0) {
         reject(
-          new Error(
-            `FFmpeg terminó con código ${code}: ` +
-            `${Buffer.concat(errors).toString('utf8')}`
-          )
+            new Error(
+                `FFmpeg terminó con código ${code}: ` +
+            `${Buffer.concat(errors).toString('utf8')}`,
+            ),
         );
         return;
       }
@@ -148,14 +148,14 @@ async function main() {
 
   console.log(`[C03] PCM generado: ${pcm.length} bytes`);
   console.log(
-    `[C03] Formato PCM: signed 16-bit little-endian, ${channels} canales, ` +
-    `${sampleRate} Hz`
+      `[C03] Formato PCM: signed 16-bit little-endian, ${channels} canales, ` +
+    `${sampleRate} Hz`,
   );
   console.log(
-    `[C03] Duración PCM aproximada: ${durationSeconds.toFixed(2)} s`
+      `[C03] Duración PCM aproximada: ${durationSeconds.toFixed(2)} s`,
   );
   console.log(
-    '[C03] PASS: preview real -> fetch Node -> FFmpeg -> PCM.'
+      '[C03] PASS: preview real -> fetch Node -> FFmpeg -> PCM.',
   );
 }
 

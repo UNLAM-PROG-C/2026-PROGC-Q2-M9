@@ -6,13 +6,15 @@
  * Las recepciones confirmadas por el servidor, y no el orden de envío,
  * determinan los líderes esperados de S2, S3 y S4.
  */
-const {spawnSync} = require('child_process');
-const path = require('path');
+import {spawnSync} from 'child_process';
+import path from 'path';
+import {fileURLToPath} from 'url';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
 const harnessPath = path.join(__dirname, 'alt02-concurrent-answers.js');
 const rounds = Math.max(
-  1, Number.parseInt(process.env.ALT02_MATRIX_ROUNDS || '20', 10)
+    1, Number.parseInt(process.env.ALT02_MATRIX_ROUNDS || '20', 10),
 );
 
 /**
@@ -72,10 +74,10 @@ console.log(`Rondas por escenario: ${rounds}`);
 for (const scenario of scenarios) {
   console.log(`\n=== ${scenario.id}: ${scenario.description} ===`);
   console.log(
-    `clientes=${scenario.clients}, ` +
+      `clientes=${scenario.clients}, ` +
     `offsets seguidores=${scenario.offsets} ms, ` +
     `drainDelay=${scenario.drainDelay} ms` +
-    `${scenario.leadClient ? `, lead=C${scenario.leadClient}` : ''}`
+    `${scenario.leadClient ? `, lead=C${scenario.leadClient}` : ''}`,
   );
 
   const result = spawnSync(process.execPath, [harnessPath], {
@@ -98,19 +100,20 @@ for (const scenario of scenarios) {
   const passed = result.status === 0;
   results.push({...scenario, passed, status: result.status});
   console.log(
-    `[MATRIX] ${scenario.id}: ` +
-    `${passed ? 'PASS' : `FAIL (exit=${result.status})`}`
+      `[MATRIX] ${scenario.id}: ` +
+    `${passed ? 'PASS' : `FAIL (exit=${result.status})`}`,
   );
 }
 
 console.log('\n=== ALT-02 MATRIZ RESULTADO ===');
 for (const result of results) {
   console.log(
-    `${result.id}: ${result.passed ? 'PASS' : 'FAIL'} - ${result.description}`
+      `${result.id}: ${result.passed ? 'PASS' : 'FAIL'} - ` +
+      `${result.description}`,
   );
 }
 
-const passedCount = results.filter(result => result.passed).length;
+const passedCount = results.filter((result) => result.passed).length;
 console.log(`PASS escenarios: ${passedCount}/${results.length}`);
 
 if (passedCount !== results.length) {

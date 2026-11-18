@@ -435,7 +435,7 @@ function joinGame() {
       const player = document.getElementById('audio-player');
       player.src = data.song;
       player.style.display = 'block';
-      player.play().catch(e => console.log('Autoplay bloqueado', e));
+      player.play().catch((e) => console.log('Autoplay bloqueado', e));
       resetRoundState();
     }
 
@@ -443,7 +443,7 @@ function joinGame() {
       document.getElementById('audio-player').pause();
       const winnerName = data.winner?.displayName || 'Nadie';
       startRoundTransitionCountdown(
-        data.delay, winnerName, data.songTitle, data.points
+          data.delay, winnerName, data.songTitle, data.points,
       );
     }
 
@@ -631,7 +631,7 @@ function toggleReady() {
  * @param {number} points Puntos adjudicados en la ronda.
  */
 function startRoundTransitionCountdown(
-  totalSeconds, winner, songTitle, points
+    totalSeconds, winner, songTitle, points,
 ) {
   if (roundTimerInterval) {
     clearInterval(roundTimerInterval);
@@ -718,7 +718,7 @@ function handleInput() {
   }
 
   const matches = songTitles
-      .filter(title => normalizeClientText(title).includes(query))
+      .filter((title) => normalizeClientText(title).includes(query))
       .slice(0, 7);
 
   if (matches.length === 0) {
@@ -726,7 +726,7 @@ function handleInput() {
     return;
   }
 
-  matches.forEach(match => {
+  matches.forEach((match) => {
     const div = document.createElement('div');
     div.className = 'suggestion-item';
     div.innerText = match;
@@ -773,7 +773,7 @@ function sendAnswer() {
  */
 function addAttempt(text, isCorrect, pts) {
   const list = document.getElementById('attempts-list');
-  if (list.querySelector("li[style*='color: #777']")) {
+  if (list.querySelector('li[style*=\'color: #777\']')) {
     list.innerHTML = '';
   }
   const li = document.createElement('li');
