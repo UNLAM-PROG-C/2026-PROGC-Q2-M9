@@ -100,20 +100,6 @@ async function testSixJobsWithThreeWorkers() {
   await pool.terminate();
 }
 
-async function testControlledSaturationFailure() {
-  const {pool, workers} = createPoolHarness();
-  const jobs = createJobs(DEFAULT_POOL_SIZE + 1);
-  const runningJobs = jobs.slice(0, DEFAULT_POOL_SIZE);
-  const running = runningJobs.map((job) => pool.submit(job));
-  await assert.rejects(
-      pool.submit(jobs[DEFAULT_POOL_SIZE]),
-      /sin capacidad disponible/,
-  );
-  completeBusyWorkers(workers);
-  await Promise.all(running);
-  await pool.terminate();
-}
-
 async function testTerminatePool() {
   const {pool, workers} = createPoolHarness();
   await pool.terminate();
@@ -175,12 +161,10 @@ async function testRealWorkerReuse() {
 
 async function main() {
   await testSixJobsWithThreeWorkers();
-  await testControlledSaturationFailure();
   await testTerminatePool();
   await testRealWorkerReuse();
   console.log(
-      '[C11] PASS: pool=3 limita concurrencia, reutiliza workers y ' +
-      'maneja saturación controladamente.',
+      '[C11] PASS: pool=3 limita concurrencia y reutiliza workers persistentes',
   );
 }
 

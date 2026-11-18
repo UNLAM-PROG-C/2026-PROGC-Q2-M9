@@ -16,6 +16,7 @@
     "test:c09": "node tests/audio-worker-test.js",
     "test:c10": "node --test tests/audio-worker/audio-worker-errors-test.js",
     "test:c11": "node tests/audio-worker-pool-test.js",
+    "test:c12": "node tests/job-queue-test.js && node tests/audio-job-queue-dispatch-test.js",
     "lint": "eslint . public/index.html",
     "lint:report": "eslint . public/index.html --format json --output-file lint-report.json",
     "test:c14": "node tests/audio-preparation-manager-test.js",

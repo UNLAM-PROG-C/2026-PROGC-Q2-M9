@@ -1,7 +1,8 @@
 /**
- * @fileoverview Pool fijo y reutilizable de AudioWorker para V4-C11.
+ * @fileoverview Pool fijo y reutilizable de AudioWorker para V4-C11/C12.
  */
 
+import {JobQueue} from './job-queue.js';
 import {AudioWorker} from './workers/audio-worker.js';
 
 const DEFAULT_POOL_SIZE = 3;
@@ -45,6 +46,12 @@ function createWorkerInstance(createWorker) {
   return worker;
 }
 
+function createCancellationError(job) {
+  return new Error(
+      `AudioJob ${job.jobId} cancelado para gameId=${job.gameId}.`,
+  );
+}
+
 class AudioWorkerPool {
   constructor({
     size = DEFAULT_POOL_SIZE,
@@ -56,6 +63,7 @@ class AudioWorkerPool {
         {length: size},
         () => createWorkerInstance(createWorker),
     );
+    this.queue = new JobQueue();
   }
 
   getSize() {
@@ -70,6 +78,10 @@ class AudioWorkerPool {
     return this.workers.filter((worker) => this.isAvailable(worker)).length;
   }
 
+  getQueuedCount() {
+    return this.queue.getSize();
+  }
+
   isAvailable(worker) {
     return !worker.hasExited() && !worker.isBusy();
   }
@@ -81,13 +93,48 @@ class AudioWorkerPool {
   }
 
   submit(job) {
+    return new Promise((resolve, reject) => {
+      const request = {job, resolve, reject};
+      const worker = this.findAvailableWorker();
+      if (!worker) {
+        this.queue.enqueue(request);
+        return;
+      }
+      this.runRequest(worker, request);
+    });
+  }
+
+  runRequest(worker, request) {
+    let execution;
+    try {
+      execution = worker.run(request.job);
+    } catch (error) {
+      request.reject(error);
+      this.dispatchNext();
+      return;
+    }
+    Promise.resolve(execution)
+        .then(request.resolve, request.reject)
+        .finally(() => this.dispatchNext());
+  }
+
+  dispatchNext() {
     const worker = this.findAvailableWorker();
     if (!worker) {
-      return Promise.reject(
-          new Error('AudioWorkerPool sin capacidad disponible.'),
-      );
+      return;
     }
-    return worker.run(job);
+    const request = this.queue.dequeue();
+    if (request) {
+      this.runRequest(worker, request);
+    }
+  }
+
+  cancelQueuedByGameId(gameId) {
+    const removed = this.queue.removeByGameId(gameId);
+    for (const request of removed) {
+      request.reject(createCancellationError(request.job));
+    }
+    return removed.length;
   }
 
   async terminate() {
