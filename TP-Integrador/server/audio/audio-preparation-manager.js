@@ -362,6 +362,25 @@ class AudioPreparationManager {
   }
 
   /**
+   * Construye los parámetros de preparación para una ronda futura.
+   * @param {!Object} params Parámetros de partida y playlist.
+   * @param {number} targetRoundId Ronda futura candidata.
+   * @return {!Object} Parámetros para requestPreparation.
+   * @private
+   */
+  buildTargetPreparation(params, targetRoundId) {
+    const {gameId, currentRoundId, currentSongIndex, playlist} = params;
+    const offset = targetRoundId - currentRoundId;
+    const songIndex = (currentSongIndex + offset) % playlist.length;
+    return {
+      gameId,
+      roundId: targetRoundId,
+      mode: selectModeForRound(targetRoundId, this.modeSequence),
+      source: playlist[songIndex],
+    };
+  }
+
+  /**
    * Admite una ronda futura si no está cubierta ni excede la capacidad.
    * @param {!Object} params Parámetros de partida y playlist.
    * @param {number} targetRoundId Ronda futura candidata.
@@ -369,21 +388,13 @@ class AudioPreparationManager {
    * @private
    */
   scheduleTargetIfMissing(params, targetRoundId) {
-    const {gameId, currentRoundId, currentSongIndex, playlist} = params;
+    const {gameId} = params;
     if (this.isRoundCovered(gameId, targetRoundId) ||
-        this.hasReachedCapacity()) {
+      this.hasReachedCapacity()) {
       return false;
     }
-    const offset = targetRoundId - currentRoundId;
-    const songIndex = (currentSongIndex + offset) % playlist.length;
-    const mode = selectModeForRound(targetRoundId, this.modeSequence);
-    const admission = this.requestPreparation({
-      gameId,
-      roundId: targetRoundId,
-      mode,
-      source: playlist[songIndex],
-    });
-    return admission.accepted;
+    const request = this.buildTargetPreparation(params, targetRoundId);
+    return this.requestPreparation(request).accepted;
   }
 
   /**

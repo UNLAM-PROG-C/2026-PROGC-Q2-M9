@@ -38,6 +38,16 @@ function createPlaylist(count) {
   }));
 }
 
+function createPendingPromise(pending, jobId) {
+  return new Promise((resolve, reject) => {
+    pending.set(jobId, {resolve, reject});
+  });
+}
+
+function settlePending(pending, jobId, action, value) {
+  pending.get(jobId)[action](value);
+}
+
 /**
  * Crea un pool controlado que permite resolver o rechazar jobs a demanda.
  * @return {!Object} Doble de pool con jobs y controles manuales.
@@ -49,17 +59,28 @@ function createControlledPool() {
     jobs,
     submit(job) {
       jobs.push(job);
-      return new Promise((resolve, reject) => {
-        pending.set(job.jobId, {resolve, reject});
-      });
+      return createPendingPromise(pending, job.jobId);
     },
-    resolveJob(jobId, value = {ok: true}) {
-      pending.get(jobId).resolve(value);
-    },
-    rejectJob(jobId, error = new Error('fallo simulado')) {
-      pending.get(jobId).reject(error);
-    },
+    resolveJob: (jobId, value = {ok: true}) =>
+      settlePending(pending, jobId, 'resolve', value),
+    rejectJob: (jobId, error = new Error('fallo simulado')) =>
+      settlePending(pending, jobId, 'reject', error),
   };
+}
+
+function createWindowParams(playlist, overrides = {}) {
+  return {
+    gameId: GAME_ID_ONE,
+    currentRoundId: ROUND_ONE,
+    currentSongIndex: INDEX_ZERO,
+    playlist,
+    maxRounds: MAX_ROUNDS_EIGHT,
+    ...overrides,
+  };
+}
+
+function requestRound(manager, gameId, roundId, mode, source) {
+  manager.requestPreparation({gameId, roundId, mode, source});
 }
 
 /**
@@ -103,13 +124,8 @@ function addReadyRound(buffer, gameId, roundId, song) {
 test('P01: ventana vacía programa N+1, N+2 y N+3 con índice circular', () => {
   const {pool, logs, manager} = createPrefetchHarness();
   const playlist = createPlaylist(ROUND_THREE);
-  const summary = manager.maintainPrefetchWindow({
-    gameId: GAME_ID_ONE,
-    currentRoundId: ROUND_ONE,
-    currentSongIndex: INDEX_ONE,
-    playlist,
-    maxRounds: MAX_ROUNDS_EIGHT,
-  });
+  const summary = manager.maintainPrefetchWindow(
+      createWindowParams(playlist, {currentSongIndex: INDEX_ONE}));
   assert.deepEqual(summary.scheduled, [ROUND_TWO, ROUND_THREE, ROUND_FOUR]);
   assert.equal(pool.jobs[INDEX_ZERO].source.id, 'song-3');
   assert.equal(pool.jobs[INDEX_ONE].source.id, 'song-1');
@@ -137,19 +153,10 @@ test('P03 y P04: omite READY e IN_FLIGHT y programa solo faltantes', () => {
   const {pool, buffer, manager} = createPrefetchHarness();
   const playlist = createPlaylist(ROUND_FIVE);
   addReadyRound(buffer, GAME_ID_ONE, ROUND_TWO, playlist[INDEX_ONE]);
-  manager.requestPreparation({
-    gameId: GAME_ID_ONE,
-    roundId: ROUND_THREE,
-    mode: AudioMode.LOW_PASS,
-    source: playlist[INDEX_TWO],
-  });
-  const summary = manager.maintainPrefetchWindow({
-    gameId: GAME_ID_ONE,
-    currentRoundId: ROUND_ONE,
-    currentSongIndex: INDEX_ZERO,
-    playlist,
-    maxRounds: MAX_ROUNDS_EIGHT,
-  });
+  requestRound(
+      manager, GAME_ID_ONE, ROUND_THREE,
+      AudioMode.LOW_PASS, playlist[INDEX_TWO]);
+  const summary = manager.maintainPrefetchWindow(createWindowParams(playlist));
   assert.deepEqual(summary.ready, [ROUND_TWO]);
   assert.deepEqual(summary.inFlight, [ROUND_THREE]);
   assert.deepEqual(summary.scheduled, [ROUND_FOUR]);
@@ -163,13 +170,8 @@ test('P05: al consumir N+1 y avanzar ventana se programa N+4', () => {
   addReadyRound(buffer, GAME_ID_ONE, ROUND_THREE, playlist[INDEX_TWO]);
   addReadyRound(buffer, GAME_ID_ONE, ROUND_FOUR, playlist[ROUND_THREE]);
   buffer.consume(GAME_ID_ONE, ROUND_TWO);
-  const summary = manager.maintainPrefetchWindow({
-    gameId: GAME_ID_ONE,
-    currentRoundId: ROUND_TWO,
-    currentSongIndex: INDEX_ONE,
-    playlist,
-    maxRounds: MAX_ROUNDS_EIGHT,
-  });
+  const summary = manager.maintainPrefetchWindow(createWindowParams(
+      playlist, {currentRoundId: ROUND_TWO, currentSongIndex: INDEX_ONE}));
   assert.deepEqual(summary.scheduled, [ROUND_FIVE]);
 });
 
@@ -189,13 +191,7 @@ test('P06: cerca de maxRounds no excede el final de partida', () => {
 test('P07 y D06: out-of-order y fallo sin retry automático', async () => {
   const {pool, buffer, manager} = createPrefetchHarness();
   const playlist = createPlaylist(ROUND_FIVE);
-  manager.maintainPrefetchWindow({
-    gameId: GAME_ID_ONE,
-    currentRoundId: ROUND_ONE,
-    currentSongIndex: INDEX_ZERO,
-    playlist,
-    maxRounds: MAX_ROUNDS_EIGHT,
-  });
+  manager.maintainPrefetchWindow(createWindowParams(playlist));
   addReadyRound(buffer, GAME_ID_ONE, ROUND_FOUR, playlist[ROUND_THREE]);
   pool.resolveJob(pool.jobs[INDEX_TWO].jobId);
   pool.rejectJob(pool.jobs[INDEX_ZERO].jobId);
