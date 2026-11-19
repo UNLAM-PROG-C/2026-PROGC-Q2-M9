@@ -18,7 +18,8 @@
     "lint": "eslint . public/index.html",
     "lint:report": "eslint . public/index.html --format json --output-file lint-report.json",
     "test:c14": "node tests/audio-preparation-manager-test.js",
-    "test:c15": "node --test tests/prepared-round-buffer-test.js"
+    "test:c15": "node --test tests/prepared-round-buffer-test.js",
+    "test:c17": "node --test tests/audio-prefetch-test.js"
   },
   "dependencies": {
     "express": "^4.19.2",
