@@ -16,12 +16,23 @@ import {AnswerQueue} from './game/answer-queue.js';
 import {GameCoordinator} from './game/game-coordinator.js';
 import {SessionCoordinator} from './game/session-coordinator.js';
 import {SessionState} from './game/session-state.js';
+
+import {
+  AudioPreparationManager,
+} from './server/audio/audio-preparation-manager.js';
+import {
+  AudioWorkerPool,
+} from './server/audio/audio-worker-pool.js';
 import {
   PreparedRoundBuffer,
 } from './server/audio/prepared-round-buffer.js';
 import {
+  PreviewPcmPoolAdapter,
+} from './server/audio/preview-pcm-pool-adapter.js';
+import {
   RoundAudioResolver,
 } from './server/audio/round-audio-resolver.js';
+
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -347,6 +358,22 @@ let gameFinished = false;
 const sessionCoordinator = new SessionCoordinator();
 const preparedRoundBuffer = new PreparedRoundBuffer();
 
+function createAudioPreparationManager() {
+  if (TEST_MODE) {
+    return null;
+  }
+  const workerPool = new AudioWorkerPool();
+  const adapter = new PreviewPcmPoolAdapter({workerPool});
+  return new AudioPreparationManager({
+    workerPool: adapter,
+    preparedRoundBuffer,
+    initialGameId: sessionCoordinator.getGameId(),
+    log: (message) => console.log(message),
+  });
+}
+
+const audioPreparationManager = createAudioPreparationManager();
+
 const roundAudioResolver = new RoundAudioResolver({
   preparedRoundBuffer,
   log: (message) => console.log(message),
@@ -404,6 +431,34 @@ function buildSessionStateView() {
  */
 function broadcastSessionState() {
   broadcast(buildSessionStateView());
+}
+
+/**
+ * Mantiene preparada la ventana futura de audio de la partida actual.
+ * TEST_MODE la omite para conservar las pruebas determinísticas sin I/O.
+ * @return {?Object} Resumen de prefetch o null en TEST_MODE.
+ */
+function maintainAudioPrefetch() {
+  if (!audioPreparationManager) {
+    return null;
+  }
+  return audioPreparationManager.maintainPrefetchWindow({
+    gameId: sessionCoordinator.getGameId(),
+    currentRoundId: getCurrentRoundId(),
+    currentSongIndex,
+    playlist,
+    maxRounds,
+  });
+}
+
+/**
+ * Emite la ronda actual y repone su ventana futura de preparación.
+ * @return {!Object} Selección de audio utilizada por la ronda.
+ */
+function broadcastAndPrefetchCurrentRound() {
+  const resolved = broadcastCurrentRound();
+  maintainAudioPrefetch();
+  return resolved;
 }
 
 /**
@@ -490,7 +545,7 @@ function startGameFromLobby(reason) {
     `La canción es "${initialSong.title}"`,
   );
 
-  broadcastCurrentRound();
+  broadcastAndPrefetchCurrentRound();
 
   broadcastLeaderboard();
   broadcastSessionState();
@@ -728,7 +783,7 @@ function scheduleNextRoundFromAnswer(delaySeconds) {
       `La canción es "${nextSong.title}"`,
     );
 
-    broadcastCurrentRound();
+    broadcastAndPrefetchCurrentRound();
     broadcastLeaderboard();
   }, delaySeconds * 1000);
 }
@@ -1042,6 +1097,7 @@ function restartGame() {
   }
 
   const restart = sessionCoordinator.restartSession();
+  audioPreparationManager?.handleGameRestart(restart);
 
   gameStarted = false;
   gameFinished = false;
@@ -1151,7 +1207,7 @@ function forceNextRound() {
         `La canción es "${nextSong.title}"`,
       );
 
-      broadcastCurrentRound();
+      broadcastAndPrefetchCurrentRound();
       broadcastLeaderboard();
     }
   }, 5000);
