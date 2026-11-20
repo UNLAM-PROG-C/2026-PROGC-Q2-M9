@@ -419,6 +419,22 @@ function resolveCurrentRoundAudio() {
 }
 
 /**
+ * Obtiene una fuente reproducible por el cliente mientras C20 no está
+ * integrado. Nunca permite que un PCM_BUFFER viaje por WebSocket.
+ * @param {!Object} resolved Selección interna de audio de la ronda.
+ * @return {string} URL reproducible por el navegador.
+ */
+function resolveClientSongSource(resolved) {
+  if (typeof resolved.resource === 'string') {
+    return resolved.resource;
+  }
+  if (typeof resolved.resource?.url === 'string') {
+    return resolved.resource.url;
+  }
+  return resolved.song.preview;
+}
+
+/**
  * Resuelve y difunde el audio de la ronda actualmente activa.
  * @return {!Object} Selección de audio utilizada.
  */
@@ -427,7 +443,7 @@ function broadcastCurrentRound() {
 
   broadcast({
     type: 'NEW_SONG',
-    song: resolved.resource,
+    song: resolveClientSongSource(resolved),
     round: getCurrentRoundId(),
     maxRounds,
     hint: `¡Ronda ${getCurrentRoundId()} de ${maxRounds}! Adivina la canción`,
