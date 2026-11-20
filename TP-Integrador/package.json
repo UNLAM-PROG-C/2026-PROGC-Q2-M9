@@ -23,7 +23,8 @@
     "test:c14": "node tests/audio-preparation-manager-test.js",
     "test:c15": "node --test tests/prepared-round-buffer-test.js",
     "test:c16": "node --test tests/prepared-round-coordination-test.js",
-    "test:c17": "node --test tests/audio-prefetch-test.js"
+    "test:c17": "node --test tests/audio-prefetch-test.js",
+    "test:c18": "node --test tests/audio-restart-test.js"
   },
   "dependencies": {
     "express": "^4.19.2",
