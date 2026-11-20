@@ -234,6 +234,23 @@
             0% { transform: scale(1); opacity: 0.8; }
             100% { transform: scale(1.1); opacity: 1; }
         }
+
+        #audio-mode-badge {
+            display: none;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            margin: 0 0 10px 0;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: bold;
+            width: fit-content;
+        }
+
+        .mode-normal { background: #1e3a2f; color: #2ecc71; border: 1px solid #2ecc71; }
+        .mode-reverse { background: #3d1f2b; color: #ff6b81; border: 1px solid #ff6b81; }
+        .mode-low-pass { background: #1f2e42; color: #54a0ff; border: 1px solid #54a0ff; }
+
     </style>
 </head>
 <body>
@@ -274,6 +291,7 @@
             <div>
                 <h3 id="round-title">Adivina la Canción</h3>
                 <p style="color: #1db954; font-size: 12px; margin: 0 0 8px 0; font-weight: bold;">Hoy jugamos con: No te va gustar</p>
+                <div id="audio-mode-badge"></div>
                 <div id="status">Conectando...</div>
                 <audio id="audio-player" controls style="display:none;"></audio>
             </div>
@@ -336,6 +354,43 @@ let myPlayerId = null;
 let myReady = false;
 let lastSessionState = null;
 let readyActionPending = false;
+
+const AUDIO_MODE_META = {
+  NORMAL: {label: 'Modo: Normal', className: 'mode-normal'},
+  REVERSE: {label: 'Modo: Reversa', className: 'mode-reverse'},
+  LOW_PASS: {label: 'Modo: Filtro graves', className: 'mode-low-pass'},
+};
+
+/**
+ * Resuelve la URL de audio priorizando audioUrl (V4) con fallback a song (V3).
+ * @param {!Object} data Mensaje NEW_SONG o INIT_GAME.
+ * @return {string} URL reproducible para player.src.
+ */
+function resolveRoundAudioSrc(data) {
+  return data.audioUrl || data.song || '';
+}
+
+/**
+ * Actualiza el indicador visual del modo de audio de la ronda actual.
+ * @param {string=} mode Modo informado por el servidor (default NORMAL).
+ */
+function updateAudioModeBadge(mode) {
+  const badge = document.getElementById('audio-mode-badge');
+  const meta = AUDIO_MODE_META[mode] || AUDIO_MODE_META.NORMAL;
+  badge.innerText = meta.label;
+  badge.className = meta.className;
+  badge.style.display = 'inline-flex';
+}
+
+/**
+ * Oculta y limpia el indicador visual de modo fuera de ronda activa.
+ */
+function resetAudioModeBadge() {
+  const badge = document.getElementById('audio-mode-badge');
+  badge.innerText = '';
+  badge.className = '';
+  badge.style.display = 'none';
+}
 
 /**
  * Normaliza las búsquedas de títulos para el autocompletado.
@@ -429,11 +484,13 @@ function joinGame() {
       if (data.titles) {
         songTitles = data.titles;
       }
+      const roundNumber = data.roundId || data.round;
       document.getElementById('round-title').innerText =
-        `Adivina la Canción (Ronda ${data.round}/${data.maxRounds})`;
+        `Adivina la Canción (Ronda ${roundNumber}/${data.maxRounds})`;
+      updateAudioModeBadge(data.mode);
       document.getElementById('status').innerText = data.hint;
       const player = document.getElementById('audio-player');
-      player.src = data.song;
+      player.src = resolveRoundAudioSrc(data);
       player.style.display = 'block';
       player.play().catch((e) => console.log('Autoplay bloqueado', e));
       resetRoundState();
@@ -493,6 +550,7 @@ function joinGame() {
         'Todos deben marcar READY nuevamente.';
       document.getElementById('countdown').innerText = 'Esperando READY';
       resetRoundState();
+      resetAudioModeBadge();
     }
 
     if (data.type === 'CORRECT_ANSWER') {
@@ -846,6 +904,7 @@ function resetUI() {
   document.getElementById('audio-player').style.display = 'none';
   document.getElementById('username').value = '';
   resetRoundState();
+  resetAudioModeBadge();
 }
     </script>
 </body>

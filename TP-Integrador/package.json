@@ -28,6 +28,7 @@
     "test:c19": "node --test tests/round-audio-resolver-test.js tests/audio-result-publication-test.js",
     "test:c19a": "node --test tests/preview-pcm-source-test.js tests/preview-pcm-pool-adapter-test.js",
     "test:c20": "node --test tests/audio-protocol-test.js",
+    "test:c21": "node --test tests/frontend-audio-mode-test.js",
     "test:c24": "node --test tests/concurrency-audio/pool-queue-buffer-concurrency-test.js"
   },
   "dependencies": {
