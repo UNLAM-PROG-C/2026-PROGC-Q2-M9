@@ -8,8 +8,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML_PATH = path.join(__dirname, '..', 'public', 'index.html');
 const html = fs.readFileSync(INDEX_HTML_PATH, 'utf8');
 
+function extractGameResetBlock() {
+  const start = html.indexOf('if (data.type === \'GAME_RESET\')');
+  const end = html.indexOf('if (data.type === \'CORRECT_ANSWER\')', start);
+  return html.slice(start, end);
+}
+
 test('C21-01: index.html incluye contenedor visual del modo de audio', () => {
   assert.ok(html.includes('id="audio-mode-badge"'));
+  assert.equal((html.match(/id="audio-player"/g) ?? []).length, 1);
   assert.ok(html.includes('.mode-normal'));
   assert.ok(html.includes('.mode-reverse'));
   assert.ok(html.includes('.mode-low-pass'));
@@ -27,4 +34,10 @@ test('C21-03: cliente soporta modos NORMAL, REVERSE y LOW_PASS', () => {
   assert.ok(html.includes('LOW_PASS:'));
   assert.ok(html.includes('updateAudioModeBadge(data.mode);'));
   assert.ok(html.includes('resetAudioModeBadge();'));
+});
+
+test('C21-04: GAME_RESET limpia el indicador de modo de audio', () => {
+  const gameResetBlock = extractGameResetBlock();
+  assert.ok(gameResetBlock.includes('data.type === \'GAME_RESET\''));
+  assert.ok(gameResetBlock.includes('resetAudioModeBadge();'));
 });

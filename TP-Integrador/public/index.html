@@ -293,6 +293,7 @@
                 <p style="color: #1db954; font-size: 12px; margin: 0 0 8px 0; font-weight: bold;">Hoy jugamos con: No te va gustar</p>
                 <div id="audio-mode-badge"></div>
                 <div id="status">Conectando...</div>
+                <audio id="audio-player" controls style="display:none;"></audio>
             </div>
             
             <div id="suggestions-container">
@@ -549,6 +550,7 @@ function joinGame() {
         'Todos deben marcar READY nuevamente.';
       document.getElementById('countdown').innerText = 'Esperando READY';
       resetRoundState();
+      resetAudioModeBadge();
     }
 
     if (data.type === 'CORRECT_ANSWER') {
