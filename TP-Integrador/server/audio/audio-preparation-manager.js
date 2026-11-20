@@ -34,6 +34,36 @@ function buildRoundKey(gameId, roundId) {
 }
 
 /**
+ * Valida un identificador de generación de partida.
+ * @param {number} gameId Identificador a validar.
+ * @param {string} fieldName Nombre usado en el diagnóstico.
+ */
+function validateGameId(gameId, fieldName) {
+  if (!Number.isInteger(gameId) || gameId < MINIMUM_ID) {
+    throw new TypeError(
+        `${fieldName} debe ser un entero >= ${MINIMUM_ID}.`,
+    );
+  }
+}
+
+/**
+ * Valida que un RESTART avance desde la generación actualmente vigente.
+ * @param {number} previousGameId Generación anterior.
+ * @param {number} gameId Nueva generación.
+ * @param {number} currentGameId Generación vigente.
+ */
+function validateRestartTransition(previousGameId, gameId, currentGameId) {
+  validateGameId(previousGameId, 'previousGameId');
+  validateGameId(gameId, 'gameId');
+  if (previousGameId !== currentGameId) {
+    throw new Error('previousGameId no coincide con currentGameId.');
+  }
+  if (gameId <= previousGameId) {
+    throw new Error('RESTART debe avanzar a un gameId posterior.');
+  }
+}
+
+/**
  * Normaliza las opciones recibidas por el constructor con sus valores base.
  * @param {!Object=} options Opciones crudas de inicialización.
  * @return {!Object} Configuración completa con valores por defecto aplicados.
@@ -42,6 +72,7 @@ function applyDefaultOptions(options = {}) {
   return {
     workerPool: options.workerPool ?? null,
     createJobId: options.createJobId ?? null,
+    initialGameId: options.initialGameId ?? MINIMUM_ID,
     preparedRoundBuffer: options.preparedRoundBuffer ?? null,
     prefetchDepth: options.prefetchDepth ?? DEFAULT_PREFETCH_DEPTH,
     modeSequence: options.modeSequence ?? DEFAULT_MODE_SEQUENCE,
@@ -65,6 +96,7 @@ function validateManagerOptions(config) {
         'AudioPreparationManager.createJobId debe ser una función.',
     );
   }
+  validateGameId(config.initialGameId, 'AudioPreparationManager.initialGameId');
   validatePrefetchOptions(config);
 }
 
@@ -196,6 +228,7 @@ class AudioPreparationManager {
     this.log = config.log;
     this.nextJobId = INITIAL_JOB_NUMBER;
     this.createJobId = config.createJobId || (() => this.buildDefaultJobId());
+    this.currentGameId = config.initialGameId;
     this.inFlightRoundKeys = new Set();
   }
 
@@ -207,6 +240,100 @@ class AudioPreparationManager {
   buildDefaultJobId() {
     this.nextJobId += 1;
     return `audio-job-${this.nextJobId}`;
+  }
+
+  /**
+   * @return {number} Generación de partida actualmente vigente.
+   */
+  getCurrentGameId() {
+    return this.currentGameId;
+  }
+
+  /**
+   * @param {number} gameId Generación que se desea comparar.
+   * @return {boolean} True si corresponde a la partida vigente.
+   */
+  isCurrentGame(gameId) {
+    return gameId === this.currentGameId;
+  }
+
+  /**
+   * @param {!Object} result AudioResult o resultado compatible.
+   * @return {boolean} True si pertenece a una generación obsoleta.
+   */
+  isStaleResult(result) {
+    if (!result || typeof result !== 'object') {
+      throw new TypeError('result debe ser un objeto.');
+    }
+    validateGameId(result.gameId, 'AudioPreparationManager.result.gameId');
+    return !this.isCurrentGame(result.gameId);
+  }
+
+  /**
+   * Clasifica un resultado según la generación actualmente vigente.
+   * @param {!Object} result AudioResult o resultado compatible.
+   * @return {!Object} Clasificación para la posterior publicación.
+   */
+  handleAudioResult(result) {
+    if (this.isStaleResult(result)) {
+      return {
+        accepted: false,
+        reason: 'STALE_GAME',
+        result,
+      };
+    }
+    return {accepted: true, result};
+  }
+
+  /**
+   * Elimina el tracking lógico de trabajos de una generación.
+   * No cancela trabajo físico RUNNING.
+   * @param {number} gameId Generación que debe limpiarse.
+   * @return {number} Cantidad de entradas eliminadas.
+   */
+  clearInFlightTrackingForGame(gameId) {
+    validateGameId(gameId, 'AudioPreparationManager.gameId');
+    const prefix = `${gameId}:`;
+    let removed = 0;
+    for (const roundKey of this.inFlightRoundKeys) {
+      if (roundKey.startsWith(prefix)) {
+        this.inFlightRoundKeys.delete(roundKey);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
+  /**
+   * Verifica las capacidades requeridas únicamente por RESTART.
+   * @private
+   */
+  validateRestartCapabilities() {
+    if (typeof this.workerPool.cancelQueuedByGameId !== 'function') {
+      throw new TypeError('workerPool debe exponer cancelQueuedByGameId().');
+    }
+    if (this.preparedRoundBuffer !== null &&
+        typeof this.preparedRoundBuffer.clear !== 'function') {
+      throw new TypeError('preparedRoundBuffer debe exponer clear().');
+    }
+  }
+
+  /**
+   * Limpia el estado de audio obsoleto al avanzar la generación de partida.
+   * Los trabajos RUNNING no son terminados.
+   * @param {!Object} options Identificadores informados por SessionCoordinator.
+   * @return {!Object} Resumen de la limpieza realizada.
+   */
+  handleGameRestart({previousGameId, gameId}) {
+    validateRestartTransition(previousGameId, gameId, this.currentGameId);
+    this.validateRestartCapabilities();
+    const cancelledQueued =
+      this.workerPool.cancelQueuedByGameId(previousGameId);
+    const clearedInFlight =
+      this.clearInFlightTrackingForGame(previousGameId);
+    this.preparedRoundBuffer?.clear();
+    this.currentGameId = gameId;
+    return {previousGameId, gameId, cancelledQueued, clearedInFlight};
   }
 
   /**

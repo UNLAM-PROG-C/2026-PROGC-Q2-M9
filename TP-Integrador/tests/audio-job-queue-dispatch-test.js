@@ -4,53 +4,18 @@ import {
   AudioWorkerPool,
   DEFAULT_POOL_SIZE,
 } from '../server/audio/audio-worker-pool.js';
+import {ControlledWorker} from './helpers/controlled-audio-worker.js';
 
 const TOTAL_JOBS = 6;
 const DEFAULT_GAME_ID = 1;
-
-class ControlledWorker {
-  constructor(id, starts) {
-    this.id = id;
-    this.starts = starts;
-    this.busy = false;
-    this.exited = false;
-    this.pending = null;
-  }
-
-  isBusy() {
-    return this.busy;
-  }
-
-  hasExited() {
-    return this.exited;
-  }
-
-  run(job) {
-    this.busy = true;
-    this.starts.push({workerId: this.id, jobId: job.jobId});
-    return new Promise((resolve) => {
-      this.pending = {job, resolve};
-    });
-  }
-
-  complete() {
-    const {job, resolve} = this.pending;
-    this.busy = false;
-    this.pending = null;
-    resolve({jobId: job.jobId, workerId: this.id});
-  }
-
-  async terminate() {
-    this.exited = true;
-    this.busy = false;
-  }
-}
 
 function createPoolHarness(size = DEFAULT_POOL_SIZE) {
   const workers = [];
   const starts = [];
   const createWorker = () => {
-    const worker = new ControlledWorker(workers.length + 1, starts);
+    const worker = new ControlledWorker(workers.length + 1, {
+      dispatchLog: starts,
+    });
     workers.push(worker);
     return worker;
   };
