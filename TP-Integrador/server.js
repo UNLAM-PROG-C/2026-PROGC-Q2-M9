@@ -712,13 +712,7 @@ function scheduleNextRoundFromAnswer(delaySeconds) {
       `La canción es "${nextSong.title}"`,
     );
 
-    broadcast({
-      type: 'NEW_SONG',
-      song: nextSong.preview,
-      round: currentRound + 1,
-      maxRounds: maxRounds,
-      hint: `¡Ronda ${currentRound + 1} de ${maxRounds}! Adivina la canción`,
-    });
+    broadcastCurrentRound();
     broadcastLeaderboard();
   }, delaySeconds * 1000);
 }
