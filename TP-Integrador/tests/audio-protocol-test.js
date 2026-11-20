@@ -3,6 +3,7 @@ import http from 'node:http';
 import test from 'node:test';
 import express from 'express';
 import {AudioMode} from '../server/audio/model/audio-mode.js';
+import {encodePcmToWav} from '../server/audio/pcm-wav-encoder.js';
 import {
   AUDIO_ROUTE_PREFIX,
   DEFAULT_CONTENT_TYPE,
@@ -23,7 +24,16 @@ const HTTP_OK = 200;
 const HTTP_BAD_REQUEST = 400;
 const HTTP_NOT_FOUND = 404;
 const PREVIEW_URL = 'https://audio-ssl.itunes.apple.com/preview-1.m4a';
-const MOCK_WAV_BYTES = Buffer.from('RIFFmock-wav-data');
+
+function createPcmResource() {
+  return {
+    kind: 'PCM_BUFFER',
+    pcm: Buffer.from([0, 0, 1, 0, 2, 0, 3, 0]),
+    sampleRate: 44100,
+    channels: 2,
+    bitsPerSample: 16,
+  };
+}
 
 /**
  * Levanta un servidor Express efimero para probar el endpoint HTTP de audio.
@@ -68,6 +78,7 @@ test('C20-01: payload NORMAL conserva preview y compatibilidad V3', () => {
   assert.equal(payload.mode, AudioMode.NORMAL);
   assert.equal(payload.song, PREVIEW_URL);
   assert.equal(payload.audioUrl, PREVIEW_URL);
+  assert.equal(payload.prepared, false);
 });
 
 test('C20-02: payload REVERSE expone URL HTTP servida por el servidor', () => {
@@ -76,11 +87,14 @@ test('C20-02: payload REVERSE expone URL HTTP servida por el servidor', () => {
     roundId: ROUND_TWO,
     maxRounds: MAX_ROUNDS,
     mode: AudioMode.REVERSE,
+    servedByServer: true,
+    prepared: true,
   });
   const expectedUrl = `${AUDIO_ROUTE_PREFIX}/${GAME_ID}/${ROUND_TWO}`;
   assert.equal(payload.mode, AudioMode.REVERSE);
   assert.equal(payload.song, expectedUrl);
   assert.equal(payload.audioUrl, expectedUrl);
+  assert.equal(payload.prepared, true);
 });
 
 test('C20-03: payload LOW_PASS expone URL HTTP servida por el servidor', () => {
@@ -89,23 +103,29 @@ test('C20-03: payload LOW_PASS expone URL HTTP servida por el servidor', () => {
     roundId: ROUND_THREE,
     maxRounds: MAX_ROUNDS,
     mode: AudioMode.LOW_PASS,
+    servedByServer: true,
+    prepared: true,
   });
   const expectedUrl = `${AUDIO_ROUTE_PREFIX}/${GAME_ID}/${ROUND_THREE}`;
   assert.equal(payload.mode, AudioMode.LOW_PASS);
   assert.equal(payload.song, expectedUrl);
+  assert.equal(payload.prepared, true);
 });
 
-test('C20-04: endpoint HTTP sirve buffer WAV', async () => {
+test('C20-04: endpoint HTTP sirve WAV real generado desde PCM', async () => {
   const registry = new RoundAudioRegistry();
+  const wav = encodePcmToWav(createPcmResource());
   const url = registry.register({
-    gameId: GAME_ID, roundId: ROUND_TWO, buffer: MOCK_WAV_BYTES,
+    gameId: GAME_ID, roundId: ROUND_TWO, buffer: wav,
   });
   await withTestServer(registry, async (baseUrl) => {
     const res = await fetch(`${baseUrl}${url}`);
     const body = Buffer.from(await res.arrayBuffer());
     assert.equal(res.status, HTTP_OK);
     assert.ok(res.headers.get('content-type').includes(DEFAULT_CONTENT_TYPE));
-    assert.deepEqual(body, MOCK_WAV_BYTES);
+    assert.equal(body.subarray(0, 4).toString('ascii'), 'RIFF');
+    assert.equal(body.subarray(8, 12).toString('ascii'), 'WAVE');
+    assert.deepEqual(body, wav);
   });
 });
 
@@ -122,3 +142,39 @@ test('C20-05: endpoint devuelve 404 ausente y 400 invalida', async () => {
     assert.equal(invalid.status, HTTP_BAD_REQUEST);
   });
 });
+
+test('C20-06: no inventa URL local si el recurso no fue publicado', () => {
+  assert.throws(() => buildNewSongPayload({
+    gameId: GAME_ID, roundId: ROUND_TWO, maxRounds: MAX_ROUNDS,
+    mode: AudioMode.REVERSE, prepared: true,
+  }), /resource debe ser una URL no vacia/);
+});
+
+test('C20-07: encoder WAV conserva formato y PCM', () => {
+  const resource = createPcmResource();
+  const wav = encodePcmToWav(resource);
+  assert.equal(wav.readUInt16LE(20), 1);
+  assert.equal(wav.readUInt16LE(22), resource.channels);
+  assert.equal(wav.readUInt32LE(24), resource.sampleRate);
+  assert.equal(wav.readUInt16LE(34), resource.bitsPerSample);
+  assert.deepEqual(wav.subarray(44), resource.pcm);
+});
+
+test(
+    'C20-08: clear invalida recursos HTTP de la partida anterior',
+    async () => {
+      const registry = new RoundAudioRegistry();
+      registry.register({
+        gameId: GAME_ID,
+        roundId: ROUND_TWO,
+        buffer: encodePcmToWav(createPcmResource()),
+      });
+      registry.clear();
+      await withTestServer(registry, async (baseUrl) => {
+        const res = await fetch(
+            `${baseUrl}${AUDIO_ROUTE_PREFIX}/${GAME_ID}/${ROUND_TWO}`,
+        );
+        assert.equal(res.status, HTTP_NOT_FOUND);
+      });
+    },
+);

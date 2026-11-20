@@ -20,7 +20,6 @@ function assertPositiveInt(value, name) {
  * @param {!Object} options Datos de la ronda resuelta.
  * @param {number} options.gameId Generacion de partida.
  * @param {number} options.roundId Numero de ronda.
- * @param {string} options.mode Modo de audio aplicado.
  * @param {string=} options.resource URL original o recurso preparado.
  * @param {boolean=} options.servedByServer True si se sirve via HTTP local.
  * @return {string} URL lista para asignar a player.src.
@@ -28,15 +27,14 @@ function assertPositiveInt(value, name) {
 function resolveClientAudioUrl({
   gameId,
   roundId,
-  mode,
   resource = '',
   servedByServer = false,
 }) {
-  if (servedByServer || mode !== AudioMode.NORMAL) {
+  if (servedByServer) {
     return buildRoundAudioUrl(gameId, roundId);
   }
   if (typeof resource !== 'string' || resource.trim() === '') {
-    throw new TypeError('resource debe ser una URL no vacia para NORMAL.');
+    throw new TypeError('resource debe ser una URL no vacia.');
   }
   return resource;
 }
@@ -44,7 +42,7 @@ function resolveClientAudioUrl({
 /**
  * Construye el payload WebSocket NEW_SONG extendido para V4 (C20 / D08).
  * Mantiene los campos V3 (type, song, round, maxRounds, hint) y agrega
- * gameId, roundId, mode y audioUrl.
+ * gameId, roundId, mode, prepared y audioUrl.
  * @param {!Object} options Datos de la ronda activa.
  * @param {number} options.gameId Generacion de partida.
  * @param {number} options.roundId Numero de ronda (base 1).
@@ -83,7 +81,9 @@ function buildNewSongPayload(options) {
       `¡Ronda ${roundId} de ${maxRounds}! Adivina la canción`;
   return {
     type: MESSAGE_TYPE_NEW_SONG, gameId, roundId,
-    round: roundId, maxRounds, mode, song: audioUrl, audioUrl, hint,
+    round: roundId, maxRounds, mode,
+    prepared: Boolean(normalized.prepared),
+    song: audioUrl, audioUrl, hint,
   };
 }
 
