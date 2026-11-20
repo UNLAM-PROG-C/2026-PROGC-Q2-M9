@@ -17,6 +17,23 @@ import {GameCoordinator} from './game/game-coordinator.js';
 import {SessionCoordinator} from './game/session-coordinator.js';
 import {SessionState} from './game/session-state.js';
 
+import {
+  AudioPreparationManager,
+} from './server/audio/audio-preparation-manager.js';
+import {
+  AudioWorkerPool,
+} from './server/audio/audio-worker-pool.js';
+import {
+  PreparedRoundBuffer,
+} from './server/audio/prepared-round-buffer.js';
+import {
+  PreviewPcmPoolAdapter,
+} from './server/audio/preview-pcm-pool-adapter.js';
+import {
+  RoundAudioResolver,
+} from './server/audio/round-audio-resolver.js';
+
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ALT-02 / C8: modo determinístico para pruebas automatizadas.
@@ -339,6 +356,28 @@ let gameFinished = false;
 // V3 / C4: SessionCoordinator refleja explícitamente
 // el ciclo de vida que la aplicación ya ejecuta.
 const sessionCoordinator = new SessionCoordinator();
+const preparedRoundBuffer = new PreparedRoundBuffer();
+
+function createAudioPreparationManager() {
+  if (TEST_MODE) {
+    return null;
+  }
+  const workerPool = new AudioWorkerPool();
+  const adapter = new PreviewPcmPoolAdapter({workerPool});
+  return new AudioPreparationManager({
+    workerPool: adapter,
+    preparedRoundBuffer,
+    initialGameId: sessionCoordinator.getGameId(),
+    log: (message) => console.log(message),
+  });
+}
+
+const audioPreparationManager = createAudioPreparationManager();
+
+const roundAudioResolver = new RoundAudioResolver({
+  preparedRoundBuffer,
+  log: (message) => console.log(message),
+});
 
 /**
  * Delega la validación de la transición al SessionCoordinator y registra
@@ -394,6 +433,81 @@ function broadcastSessionState() {
   broadcast(buildSessionStateView());
 }
 
+/**
+ * Mantiene preparada la ventana futura de audio de la partida actual.
+ * TEST_MODE la omite para conservar las pruebas determinísticas sin I/O.
+ * @return {?Object} Resumen de prefetch o null en TEST_MODE.
+ */
+function maintainAudioPrefetch() {
+  if (!audioPreparationManager) {
+    return null;
+  }
+  return audioPreparationManager.maintainPrefetchWindow({
+    gameId: sessionCoordinator.getGameId(),
+    currentRoundId: getCurrentRoundId(),
+    currentSongIndex,
+    playlist,
+    maxRounds,
+  });
+}
+
+/**
+ * Emite la ronda actual y repone su ventana futura de preparación.
+ * @return {!Object} Selección de audio utilizada por la ronda.
+ */
+function broadcastAndPrefetchCurrentRound() {
+  const resolved = broadcastCurrentRound();
+  maintainAudioPrefetch();
+  return resolved;
+}
+
+/**
+ * Resuelve el recurso de audio de la ronda actualmente activa.
+ * @return {!Object} Selección preparada o fallback NORMAL.
+ */
+function resolveCurrentRoundAudio() {
+  return roundAudioResolver.resolve({
+    gameId: sessionCoordinator.getGameId(),
+    roundId: getCurrentRoundId(),
+    playlistSong: playlist[currentSongIndex],
+  });
+}
+
+/**
+ * Obtiene una fuente reproducible por el cliente mientras C20 no está
+ * integrado. Nunca permite que un PCM_BUFFER viaje por WebSocket.
+ * @param {!Object} resolved Selección interna de audio de la ronda.
+ * @return {string} URL reproducible por el navegador.
+ */
+function resolveClientSongSource(resolved) {
+  if (typeof resolved.resource === 'string') {
+    return resolved.resource;
+  }
+  if (typeof resolved.resource?.url === 'string') {
+    return resolved.resource.url;
+  }
+  return resolved.song.preview;
+}
+
+/**
+ * Resuelve y difunde el audio de la ronda actualmente activa.
+ * @return {!Object} Selección de audio utilizada.
+ */
+function broadcastCurrentRound() {
+  const resolved = resolveCurrentRoundAudio();
+
+  broadcast({
+    type: 'NEW_SONG',
+    song: resolveClientSongSource(resolved),
+    round: getCurrentRoundId(),
+    maxRounds,
+    hint: `¡Ronda ${getCurrentRoundId()} de ${maxRounds}! Adivina la canción`,
+  });
+
+  return resolved;
+}
+
+
 let lastReadyBarrierStatus = null;
 
 /**
@@ -431,13 +545,7 @@ function startGameFromLobby(reason) {
     `La canción es "${initialSong.title}"`,
   );
 
-  broadcast({
-    type: 'NEW_SONG',
-    song: initialSong.preview,
-    round: currentRound + 1,
-    maxRounds,
-    hint: `¡Ronda ${currentRound + 1} de ${maxRounds}! Adivina la canción`,
-  });
+  broadcastAndPrefetchCurrentRound();
 
   broadcastLeaderboard();
   broadcastSessionState();
@@ -675,13 +783,7 @@ function scheduleNextRoundFromAnswer(delaySeconds) {
       `La canción es "${nextSong.title}"`,
     );
 
-    broadcast({
-      type: 'NEW_SONG',
-      song: nextSong.preview,
-      round: currentRound + 1,
-      maxRounds: maxRounds,
-      hint: `¡Ronda ${currentRound + 1} de ${maxRounds}! Adivina la canción`,
-    });
+    broadcastAndPrefetchCurrentRound();
     broadcastLeaderboard();
   }, delaySeconds * 1000);
 }
@@ -995,6 +1097,7 @@ function restartGame() {
   }
 
   const restart = sessionCoordinator.restartSession();
+  audioPreparationManager?.handleGameRestart(restart);
 
   gameStarted = false;
   gameFinished = false;
@@ -1104,13 +1207,7 @@ function forceNextRound() {
         `La canción es "${nextSong.title}"`,
       );
 
-      broadcast({
-        type: 'NEW_SONG',
-        song: nextSong.preview,
-        round: currentRound + 1,
-        maxRounds: maxRounds,
-        hint: `¡Ronda ${currentRound + 1} de ${maxRounds}! Adivina la canción`,
-      });
+      broadcastAndPrefetchCurrentRound();
       broadcastLeaderboard();
     }
   }, 5000);
