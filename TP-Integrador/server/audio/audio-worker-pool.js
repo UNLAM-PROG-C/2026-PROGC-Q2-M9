@@ -53,17 +53,56 @@ function createCancellationError(job) {
 }
 
 class AudioWorkerPool {
-  constructor({
-    size = DEFAULT_POOL_SIZE,
+  constructor({size = DEFAULT_POOL_SIZE,
     createWorker = () => new AudioWorker(),
   } = {}) {
     validatePoolSize(size);
     validateWorkerFactory(createWorker);
+    this.createWorker = createWorker;
+    this.closed = false;
+    this.replacementError = null;
+    this.queue = new JobQueue();
     this.workers = Array.from(
         {length: size},
-        () => createWorkerInstance(createWorker),
+        () => this.createObservedWorker(),
     );
-    this.queue = new JobQueue();
+  }
+
+  createObservedWorker() {
+    const worker = createWorkerInstance(this.createWorker);
+    if (typeof worker.onExit === 'function') {
+      worker.onExit((code) => this.handleWorkerExit(worker, code));
+    }
+    return worker;
+  }
+
+  handleWorkerExit(worker, code) {
+    const index = this.workers.indexOf(worker);
+    if (this.closed || index === -1) {
+      return;
+    }
+    console.error(`[AUDIO_WORKER_EXIT] código=${code}; reemplazando worker.`);
+    try {
+      this.workers[index] = this.createObservedWorker();
+    } catch (error) {
+      this.failReplacement(error);
+      return;
+    }
+    this.dispatchNext();
+  }
+
+  failReplacement(error) {
+    this.replacementError = error;
+    console.error('[AUDIO_WORKER_REPLACEMENT_ERROR]', error);
+    this.rejectQueued(error);
+  }
+
+  rejectQueued(error) {
+    let request = this.queue.dequeue();
+    while (request) {
+      request.reject(error);
+      request = this.queue.dequeue();
+    }
   }
 
   getSize() {
@@ -83,7 +122,8 @@ class AudioWorkerPool {
   }
 
   isAvailable(worker) {
-    return !worker.hasExited() && !worker.isBusy();
+    return !worker.hasExited() && !worker.isBusy() &&
+      (typeof worker.isHealthy !== 'function' || worker.isHealthy());
   }
 
   findAvailableWorker() {
@@ -93,15 +133,21 @@ class AudioWorkerPool {
   }
 
   submit(job) {
-    return new Promise((resolve, reject) => {
-      const request = {job, resolve, reject};
-      const worker = this.findAvailableWorker();
-      if (!worker) {
-        this.queue.enqueue(request);
-        return;
-      }
-      this.runRequest(worker, request);
-    });
+    if (this.closed || this.replacementError) {
+      return Promise.reject(
+          this.replacementError || new Error('AudioWorkerPool cerrado.'));
+    }
+    return new Promise((resolve, reject) =>
+      this.enqueueOrRun({job, resolve, reject}));
+  }
+
+  enqueueOrRun(request) {
+    const worker = this.findAvailableWorker();
+    if (!worker) {
+      this.queue.enqueue(request);
+      return;
+    }
+    this.runRequest(worker, request);
   }
 
   runRequest(worker, request) {
@@ -138,6 +184,8 @@ class AudioWorkerPool {
   }
 
   async terminate() {
+    this.closed = true;
+    this.rejectQueued(new Error('AudioWorkerPool cerrado.'));
     await Promise.all(
         this.workers.map((worker) => worker.terminate()),
     );
