@@ -16,6 +16,12 @@ import {AnswerQueue} from './game/answer-queue.js';
 import {GameCoordinator} from './game/game-coordinator.js';
 import {SessionCoordinator} from './game/session-coordinator.js';
 import {SessionState} from './game/session-state.js';
+import {
+  PreparedRoundBuffer,
+} from './server/audio/prepared-round-buffer.js';
+import {
+  RoundAudioResolver,
+} from './server/audio/round-audio-resolver.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -339,6 +345,12 @@ let gameFinished = false;
 // V3 / C4: SessionCoordinator refleja explícitamente
 // el ciclo de vida que la aplicación ya ejecuta.
 const sessionCoordinator = new SessionCoordinator();
+const preparedRoundBuffer = new PreparedRoundBuffer();
+
+const roundAudioResolver = new RoundAudioResolver({
+  preparedRoundBuffer,
+  log: (message) => console.log(message),
+});
 
 /**
  * Delega la validación de la transición al SessionCoordinator y registra
@@ -394,6 +406,37 @@ function broadcastSessionState() {
   broadcast(buildSessionStateView());
 }
 
+/**
+ * Resuelve el recurso de audio de la ronda actualmente activa.
+ * @return {!Object} Selección preparada o fallback NORMAL.
+ */
+function resolveCurrentRoundAudio() {
+  return roundAudioResolver.resolve({
+    gameId: sessionCoordinator.getGameId(),
+    roundId: getCurrentRoundId(),
+    playlistSong: playlist[currentSongIndex],
+  });
+}
+
+/**
+ * Resuelve y difunde el audio de la ronda actualmente activa.
+ * @return {!Object} Selección de audio utilizada.
+ */
+function broadcastCurrentRound() {
+  const resolved = resolveCurrentRoundAudio();
+
+  broadcast({
+    type: 'NEW_SONG',
+    song: resolved.resource,
+    round: getCurrentRoundId(),
+    maxRounds,
+    hint: `¡Ronda ${getCurrentRoundId()} de ${maxRounds}! Adivina la canción`,
+  });
+
+  return resolved;
+}
+
+
 let lastReadyBarrierStatus = null;
 
 /**
@@ -431,13 +474,7 @@ function startGameFromLobby(reason) {
     `La canción es "${initialSong.title}"`,
   );
 
-  broadcast({
-    type: 'NEW_SONG',
-    song: initialSong.preview,
-    round: currentRound + 1,
-    maxRounds,
-    hint: `¡Ronda ${currentRound + 1} de ${maxRounds}! Adivina la canción`,
-  });
+  broadcastCurrentRound();
 
   broadcastLeaderboard();
   broadcastSessionState();
