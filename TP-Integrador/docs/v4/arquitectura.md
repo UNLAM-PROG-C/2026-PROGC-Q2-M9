@@ -179,6 +179,13 @@ Responsabilidades:
 
 El pool no decide qué ronda debe prepararse ni qué modo de audio corresponde.
 
+Al salir inesperadamente un worker, esté ocupado o inactivo, el pool crea un
+reemplazo en su mismo lugar y continúa despachando la cola. El trabajo activo
+se rechaza y no se reintenta automáticamente. Un error controlado de trabajo
+no reemplaza el worker. Durante el cierre no se crean reemplazos; si falla la
+creación de uno, se informa el error y se rechazan los trabajos en espera y
+las nuevas solicitudes.
+
 ### 4.4 `AudioWorker`
 
 Unidad de ejecución CPU-bound.

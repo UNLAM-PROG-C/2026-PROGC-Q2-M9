@@ -36,6 +36,10 @@ class AudioWorker {
     this.worker.on('exit', (code) => this.handleWorkerExit(code));
   }
 
+  onExit(listener) {
+    this.worker.on('exit', listener);
+  }
+
   isBusy() {
     return this.busy;
   }
