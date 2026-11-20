@@ -14,12 +14,21 @@
     "test:c07": "node tests/spikes/audio/c07-transform-modes.js",
     "test:c08": "node --test tests/audio-transform-test.js",
     "test:c09": "node tests/audio-worker-test.js",
+    "test:c10": "node --test tests/audio-worker/audio-worker-errors-test.js",
     "test:c11": "node tests/audio-worker-pool-test.js",
+    "test:c12": "node tests/job-queue-test.js && node tests/audio-job-queue-dispatch-test.js",
+    "test:c13": "node --test tests/worker-pool-integration-test.js",
     "lint": "eslint . public/index.html",
     "lint:report": "eslint . public/index.html --format json --output-file lint-report.json",
     "test:c14": "node tests/audio-preparation-manager-test.js",
     "test:c15": "node --test tests/prepared-round-buffer-test.js",
-    "test:c21": "node --test tests/frontend-audio-mode-test.js"
+    "test:c16": "node --test tests/prepared-round-coordination-test.js",
+    "test:c17": "node --test tests/audio-prefetch-test.js",
+    "test:c18": "node --test tests/audio-restart-test.js",
+    "test:c19": "node --test tests/round-audio-resolver-test.js tests/audio-result-publication-test.js",
+    "test:c19a": "node --test tests/preview-pcm-source-test.js tests/preview-pcm-pool-adapter-test.js",
+    "test:c21": "node --test tests/frontend-audio-mode-test.js",
+    "test:c24": "node --test tests/concurrency-audio/pool-queue-buffer-concurrency-test.js"
   },
   "dependencies": {
     "express": "^4.19.2",

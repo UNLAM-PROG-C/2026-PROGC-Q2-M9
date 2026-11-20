@@ -14,6 +14,10 @@ const RUN_AUDIO_JOB = 'RUN_AUDIO_JOB';
 const AUDIO_RESULT = 'AUDIO_RESULT';
 const PCM_BUFFER_KIND = 'PCM_BUFFER';
 const UNKNOWN_JOB_ID = 'desconocido';
+const WORKER_UNAVAILABLE_ERROR =
+  'AudioWorker no está disponible (terminó, falló o se está cerrando).';
+const TERMINATE_ACTIVE_JOB_ERROR =
+  'AudioWorker terminado mientras procesaba un job.';
 
 class AudioWorker {
   constructor({workerScript = WORKER_SCRIPT_URL} = {}) {
@@ -22,6 +26,7 @@ class AudioWorker {
     this.currentJob = null;
     this.exited = false;
     this.closing = false;
+    this.fatalError = null;
     this.registerListeners();
   }
 
@@ -39,13 +44,21 @@ class AudioWorker {
     return this.exited;
   }
 
+  isHealthy() {
+    return !this.exited && !this.fatalError;
+  }
+
+  isAvailable() {
+    return this.isHealthy() && !this.busy && !this.closing;
+  }
+
   getThreadId() {
     return this.worker.threadId;
   }
 
   ensureAvailable() {
-    if (this.exited) {
-      throw new Error('AudioWorker ya terminó.');
+    if (!this.isHealthy() || this.closing) {
+      throw new Error(WORKER_UNAVAILABLE_ERROR);
     }
     if (this.busy) {
       throw new Error('AudioWorker está ocupado.');
@@ -148,6 +161,7 @@ class AudioWorker {
   }
 
   handleWorkerError(error) {
+    this.fatalError = error;
     this.rejectCurrentJob(error);
   }
 
@@ -167,11 +181,19 @@ class AudioWorker {
     this.currentJob = null;
   }
 
+  rejectActiveJobOnTerminate() {
+    if (!this.currentJob) {
+      return;
+    }
+    this.rejectCurrentJob(new Error(TERMINATE_ACTIVE_JOB_ERROR));
+  }
+
   async terminate() {
     if (this.exited) {
       return;
     }
     this.closing = true;
+    this.rejectActiveJobOnTerminate();
     await this.worker.terminate();
     this.exited = true;
   }

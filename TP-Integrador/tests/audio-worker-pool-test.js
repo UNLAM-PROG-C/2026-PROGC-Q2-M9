@@ -6,60 +6,27 @@ import {
   AudioWorkerPool,
   DEFAULT_POOL_SIZE,
 } from '../server/audio/audio-worker-pool.js';
+import {ControlledWorker} from './helpers/controlled-audio-worker.js';
 
 const TOTAL_JOBS = 6;
 const BYTES_PER_SAMPLE = 2;
 const PCM_BUFFER_KIND = 'PCM_BUFFER';
 const INPUT_SAMPLES = [100, 500, 200, 600, 300, 700];
 
-class ControlledWorker {
-  constructor(id) {
-    this.id = id;
-    this.busy = false;
-    this.exited = false;
-    this.pending = null;
-    this.runCount = 0;
-  }
-
-  isBusy() {
-    return this.busy;
-  }
-
-  hasExited() {
-    return this.exited;
-  }
-
-  run(job) {
-    this.busy = true;
-    this.runCount += 1;
-    return new Promise((resolve) => {
-      this.pending = {job, resolve};
-    });
-  }
-
-  complete() {
-    const {job, resolve} = this.pending;
-    this.busy = false;
-    this.pending = null;
-    resolve({jobId: job.jobId, workerId: this.id});
-  }
-
-  async terminate() {
-    this.exited = true;
-    this.busy = false;
-  }
-}
-
 function createPoolHarness() {
   const workers = [];
+  const starts = [];
   const createWorker = () => {
-    const worker = new ControlledWorker(workers.length + 1);
+    const worker = new ControlledWorker(workers.length + 1, {
+      dispatchLog: starts,
+    });
     workers.push(worker);
     return worker;
   };
   return {
     pool: new AudioWorkerPool({createWorker}),
     workers,
+    starts,
   };
 }
 
@@ -97,20 +64,6 @@ async function testSixJobsWithThreeWorkers() {
   const second = await runWave(pool, workers, jobs.slice(DEFAULT_POOL_SIZE));
   assert.equal(first.length + second.length, TOTAL_JOBS);
   assertWorkersReused(workers);
-  await pool.terminate();
-}
-
-async function testControlledSaturationFailure() {
-  const {pool, workers} = createPoolHarness();
-  const jobs = createJobs(DEFAULT_POOL_SIZE + 1);
-  const runningJobs = jobs.slice(0, DEFAULT_POOL_SIZE);
-  const running = runningJobs.map((job) => pool.submit(job));
-  await assert.rejects(
-      pool.submit(jobs[DEFAULT_POOL_SIZE]),
-      /sin capacidad disponible/,
-  );
-  completeBusyWorkers(workers);
-  await Promise.all(running);
   await pool.terminate();
 }
 
@@ -175,12 +128,10 @@ async function testRealWorkerReuse() {
 
 async function main() {
   await testSixJobsWithThreeWorkers();
-  await testControlledSaturationFailure();
   await testTerminatePool();
   await testRealWorkerReuse();
   console.log(
-      '[C11] PASS: pool=3 limita concurrencia, reutiliza workers y ' +
-      'maneja saturación controladamente.',
+      '[C11] PASS: pool=3 limita concurrencia y reutiliza workers persistentes',
   );
 }
 
