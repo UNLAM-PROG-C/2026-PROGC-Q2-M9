@@ -9,6 +9,7 @@ import {
 import {AudioMode} from '../server/audio/model/audio-mode.js';
 import {PreparedRound} from '../server/audio/model/prepared-round.js';
 import {PreparedRoundBuffer} from '../server/audio/prepared-round-buffer.js';
+import {AudioResult} from '../server/audio/model/audio-result.js';
 
 const GAME_ID_ONE = 1;
 const GAME_ID_TWO = 2;
@@ -38,9 +39,23 @@ function createPlaylist(count) {
   }));
 }
 
-function createPendingPromise(pending, jobId) {
+function createSuccessResult(job) {
+  return new AudioResult({
+    jobId: job.jobId,
+    gameId: job.gameId,
+    roundId: job.roundId,
+    mode: job.mode,
+    ok: true,
+    resource: {
+      kind: 'TEST_RESOURCE',
+      jobId: job.jobId,
+    },
+  });
+}
+
+function createPendingPromise(pending, job) {
   return new Promise((resolve, reject) => {
-    pending.set(jobId, {resolve, reject});
+    pending.set(job.jobId, {job, resolve, reject});
   });
 }
 
@@ -59,10 +74,17 @@ function createControlledPool() {
     jobs,
     submit(job) {
       jobs.push(job);
-      return createPendingPromise(pending, job.jobId);
+      return createPendingPromise(pending, job);
     },
-    resolveJob: (jobId, value = {ok: true}) =>
-      settlePending(pending, jobId, 'resolve', value),
+    resolveJob(jobId, value = null) {
+      const entry = pending.get(jobId);
+      settlePending(
+          pending,
+          jobId,
+          'resolve',
+          value ?? createSuccessResult(entry.job),
+      );
+    },
     rejectJob: (jobId, error = new Error('fallo simulado')) =>
       settlePending(pending, jobId, 'reject', error),
   };

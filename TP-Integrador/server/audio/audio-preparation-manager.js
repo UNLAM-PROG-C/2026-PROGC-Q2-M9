@@ -1,5 +1,6 @@
 import {AudioJob} from './model/audio-job.js';
 import {AudioMode, isValidAudioMode} from './model/audio-mode.js';
+import {PreparedRound} from './model/prepared-round.js';
 
 /**
  * Cantidad predeterminada de rondas futuras cubiertas por prefetch.
@@ -108,8 +109,11 @@ function validateManagerOptions(config) {
 function validatePrefetchOptions(config) {
   const {preparedRoundBuffer, prefetchDepth, modeSequence, log} = config;
   if (preparedRoundBuffer !== null &&
-      typeof preparedRoundBuffer.has !== 'function') {
-    throw new TypeError('preparedRoundBuffer debe exponer has().');
+    (typeof preparedRoundBuffer.has !== 'function' ||
+      typeof preparedRoundBuffer.tryAdd !== 'function')) {
+    throw new TypeError(
+        'preparedRoundBuffer debe exponer has() y tryAdd().',
+    );
   }
   if (!Number.isInteger(prefetchDepth) || prefetchDepth < MINIMUM_DEPTH) {
     throw new TypeError(`prefetchDepth debe ser >= ${MINIMUM_DEPTH}.`);
@@ -230,6 +234,7 @@ class AudioPreparationManager {
     this.createJobId = config.createJobId || (() => this.buildDefaultJobId());
     this.currentGameId = config.initialGameId;
     this.inFlightRoundKeys = new Set();
+    this.roundSongs = new Map();
   }
 
   /**
@@ -270,18 +275,55 @@ class AudioPreparationManager {
   }
 
   /**
+   * Publica un resultado exitoso como PreparedRound si existe contexto lógico.
+   * @param {!Object} result AudioResult finalizado.
+   * @return {?Object} Resultado de inserción o null si no corresponde publicar.
+   */
+  publishPreparedRound(result) {
+    const key = buildRoundKey(result.gameId, result.roundId);
+    const song = this.roundSongs.get(key);
+
+    if (!this.preparedRoundBuffer ||
+      result.ok !== true ||
+      result.resource === null ||
+      result.resource === undefined ||
+      song === undefined) {
+      this.roundSongs.delete(key);
+      return null;
+    }
+
+    const preparedRound = new PreparedRound({
+      gameId: result.gameId,
+      roundId: result.roundId,
+      mode: result.mode,
+      song,
+      resource: result.resource,
+    });
+
+    const publication = this.preparedRoundBuffer.tryAdd(preparedRound);
+    this.roundSongs.delete(key);
+    return publication;
+  }
+
+  /**
    * Clasifica un resultado según la generación actualmente vigente.
    * @param {!Object} result AudioResult o resultado compatible.
    * @return {!Object} Clasificación para la posterior publicación.
    */
   handleAudioResult(result) {
-    if (this.isStaleResult(result)) {
+    const stale = this.isStaleResult(result);
+    const key = buildRoundKey(result.gameId, result.roundId);
+
+    if (stale) {
+      this.roundSongs.delete(key);
       return {
         accepted: false,
         reason: 'STALE_GAME',
         result,
       };
     }
+
+    this.publishPreparedRound(result);
     return {accepted: true, result};
   }
 
@@ -331,6 +373,7 @@ class AudioPreparationManager {
       this.workerPool.cancelQueuedByGameId(previousGameId);
     const clearedInFlight =
       this.clearInFlightTrackingForGame(previousGameId);
+    this.clearRoundSongsForGame(previousGameId);
     this.preparedRoundBuffer?.clear();
     this.currentGameId = gameId;
     return {previousGameId, gameId, cancelledQueued, clearedInFlight};
@@ -352,6 +395,55 @@ class AudioPreparationManager {
   getInFlightCount() {
     return this.inFlightRoundKeys.size;
   }
+
+  /**
+   * Conserva la canción lógica asociada a una preparación.
+   * @param {number} gameId Generación de partida.
+   * @param {number} roundId Ronda lógica.
+   * @param {*} song Canción original de V3.
+   */
+  rememberRoundSong(gameId, roundId, song) {
+    if (song === undefined || song === null) {
+      return;
+    }
+    this.roundSongs.set(buildRoundKey(gameId, roundId), song);
+  }
+
+  /**
+   * Elimina canciones asociadas a una generación obsoleta.
+   * @param {number} gameId Generación a limpiar.
+   */
+  clearRoundSongsForGame(gameId) {
+    const prefix = `${gameId}:`;
+    for (const key of this.roundSongs.keys()) {
+      if (key.startsWith(prefix)) {
+        this.roundSongs.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Procesa en segundo plano resultado de una preparación con contexto lógico.
+   * @param {string} roundKey Identidad gameId:roundId.
+   * @param {!Promise<*>} submittedPromise Promesa devuelta por el pool.
+   */
+  observePreparationResult(roundKey, submittedPromise) {
+    if (!this.roundSongs.has(roundKey)) {
+      return;
+    }
+
+    const observation = submittedPromise.then((result) => {
+      this.handleAudioResult(result);
+    });
+
+    observation.catch((error) => {
+      this.roundSongs.delete(roundKey);
+      if (this.log) {
+        this.log(`[AUDIO_RESULT_ERROR] ${error.message}`);
+      }
+    });
+  }
+
 
   /**
    * Indica si una ronda ya existe como READY en el buffer configurado.
@@ -380,8 +472,9 @@ class AudioPreparationManager {
    * Crea y delega un AudioJob salvo que la ronda ya esté IN_FLIGHT (C14).
    * @param {!Object} options Datos de la solicitud individual.
    * @return {!Object} Resultado de admisión con job y resultPromise.
+   * @param {*=} options.song Canción lógica asociada a la ronda.
    */
-  requestPreparation({gameId, roundId, mode, source}) {
+  requestPreparation({gameId, roundId, mode, source, song = null}) {
     const roundKey = buildRoundKey(gameId, roundId);
     if (this.inFlightRoundKeys.has(roundKey)) {
       return {accepted: false, reason: 'ALREADY_IN_FLIGHT'};
@@ -393,6 +486,7 @@ class AudioPreparationManager {
       mode,
       source,
     });
+    this.rememberRoundSong(gameId, roundId, song);
     return this.dispatchJob(roundKey, job);
   }
 
@@ -410,12 +504,21 @@ class AudioPreparationManager {
       submitted = this.workerPool.submit(job);
     } catch (error) {
       this.inFlightRoundKeys.delete(roundKey);
+      this.roundSongs.delete(roundKey);
       throw error;
     }
-    const resultPromise = Promise.resolve(submitted).finally(() => {
+    const submittedPromise = Promise.resolve(submitted);
+
+    this.observePreparationResult(roundKey, submittedPromise);
+
+    const resultPromise = submittedPromise.finally(() => {
       this.inFlightRoundKeys.delete(roundKey);
     });
-    resultPromise.catch(() => {});
+
+    resultPromise.catch(() => {
+      this.roundSongs.delete(roundKey);
+    });
+
     return {accepted: true, job, resultPromise};
   }
 
@@ -499,11 +602,14 @@ class AudioPreparationManager {
     const {gameId, currentRoundId, currentSongIndex, playlist} = params;
     const offset = targetRoundId - currentRoundId;
     const songIndex = (currentSongIndex + offset) % playlist.length;
+    const song = playlist[songIndex];
+
     return {
       gameId,
       roundId: targetRoundId,
       mode: selectModeForRound(targetRoundId, this.modeSequence),
-      source: playlist[songIndex],
+      source: song,
+      song,
     };
   }
 
