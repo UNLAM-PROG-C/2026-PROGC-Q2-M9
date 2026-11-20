@@ -32,6 +32,14 @@ import {
 import {
   RoundAudioResolver,
 } from './server/audio/round-audio-resolver.js';
+import {AudioMode} from './server/audio/model/audio-mode.js';
+import {encodePcmToWav} from './server/audio/pcm-wav-encoder.js';
+import {
+  AUDIO_ROUTE_PREFIX,
+  RoundAudioRegistry,
+  createRoundAudioHandler,
+} from './server/audio/round-audio-registry.js';
+import {buildNewSongPayload} from './server/audio/round-protocol.js';
 
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -54,8 +62,13 @@ const TEST_QUEUE_DRAIN_DELAY_MS = Math.max(
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({server});
+const roundAudioRegistry = new RoundAudioRegistry();
 
 app.use(express.static(path.join(__dirname, 'public')));
+app.get(
+    `${AUDIO_ROUTE_PREFIX}/:gameId/:roundId`,
+    createRoundAudioHandler(roundAudioRegistry),
+);
 
 // ALT-03: identidad interna del jugador, separada del nombre visible.
 let nextPlayerNumber = 1;
@@ -474,8 +487,7 @@ function resolveCurrentRoundAudio() {
 }
 
 /**
- * Obtiene una fuente reproducible por el cliente mientras C20 no está
- * integrado. Nunca permite que un PCM_BUFFER viaje por WebSocket.
+ * Obtiene la URL original utilizable cuando no se publica audio preparado.
  * @param {!Object} resolved Selección interna de audio de la ronda.
  * @return {string} URL reproducible por el navegador.
  */
@@ -489,21 +501,73 @@ function resolveClientSongSource(resolved) {
   return resolved.song.preview;
 }
 
+function logAudioPublishFailure(resolved, reason) {
+  console.log(
+      `[AUDIO_PUBLISH_FAIL] gameId=${resolved.gameId} ` +
+      `roundId=${resolved.roundId} reason=${reason}`,
+  );
+}
+
+function logAudioPublishSuccess(resolved, url) {
+  console.log(
+      `[AUDIO_PUBLISH] gameId=${resolved.gameId} ` +
+      `roundId=${resolved.roundId} mode=${resolved.mode} url=${url}`,
+  );
+}
+
+function publishPreparedRoundAudio(resolved) {
+  if (!resolved.prepared) {
+    return false;
+  }
+  if (resolved.resource?.kind !== 'PCM_BUFFER') {
+    logAudioPublishFailure(resolved, 'INVALID_PREPARED_RESOURCE');
+    return false;
+  }
+  return registerPreparedRoundAudio(resolved);
+}
+
+function registerPreparedRoundAudio(resolved) {
+  try {
+    const buffer = encodePcmToWav(resolved.resource);
+    const url = roundAudioRegistry.register({
+      gameId: resolved.gameId, roundId: resolved.roundId, buffer,
+    });
+    logAudioPublishSuccess(resolved, url);
+    return true;
+  } catch (error) {
+    logAudioPublishFailure(resolved, error.message);
+    return false;
+  }
+}
+
+function normalizePublishedRound(resolved, servedByServer) {
+  if (servedByServer || !resolved.prepared) {
+    return resolved;
+  }
+  return {
+    ...resolved, mode: AudioMode.NORMAL, prepared: false,
+    resource: resolved.song.preview,
+  };
+}
+
+function buildRoundPayload(resolved) {
+  const servedByServer = publishPreparedRoundAudio(resolved);
+  const clientRound = normalizePublishedRound(resolved, servedByServer);
+  const resource = servedByServer ? '' : resolveClientSongSource(clientRound);
+  return buildNewSongPayload({
+    gameId: clientRound.gameId, roundId: clientRound.roundId, maxRounds,
+    mode: clientRound.mode, prepared: clientRound.prepared,
+    resource, servedByServer,
+  });
+}
+
 /**
  * Resuelve y difunde el audio de la ronda actualmente activa.
  * @return {!Object} Selección de audio utilizada.
  */
 function broadcastCurrentRound() {
   const resolved = resolveCurrentRoundAudio();
-
-  broadcast({
-    type: 'NEW_SONG',
-    song: resolveClientSongSource(resolved),
-    round: getCurrentRoundId(),
-    maxRounds,
-    hint: `¡Ronda ${getCurrentRoundId()} de ${maxRounds}! Adivina la canción`,
-  });
-
+  broadcast(buildRoundPayload(resolved));
   return resolved;
 }
 
@@ -1098,6 +1162,7 @@ function restartGame() {
 
   const restart = sessionCoordinator.restartSession();
   audioPreparationManager?.handleGameRestart(restart);
+  roundAudioRegistry.clear();
 
   gameStarted = false;
   gameFinished = false;
