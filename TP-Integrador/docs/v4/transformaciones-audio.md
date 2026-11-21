@@ -64,7 +64,7 @@ Se implementa como filtro pasa-bajos IIR de primer orden aplicado independientem
 Frecuencia de corte por defecto:
 
 ```text
-1200 Hz
+100 Hz
 ```
 
 El valor puede sobrescribirse mediante:

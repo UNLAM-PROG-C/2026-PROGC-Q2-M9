@@ -1,6 +1,6 @@
 import {AudioMode, isValidAudioMode} from '../model/audio-mode.js';
 
-const DEFAULT_LOW_PASS_CUTOFF_HZ = 1200;
+const DEFAULT_LOW_PASS_CUTOFF_HZ = 100;
 const BITS_PER_BYTE = 8;
 const PCM_BITS = 16;
 const INT16_MIN = -32768;
