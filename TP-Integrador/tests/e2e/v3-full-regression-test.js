@@ -38,18 +38,22 @@ function printFailureOutput(proc) {
   }
 }
 
-function executeSingleSpec(specRelPath) {
-  const startedAt = Date.now();
-  const proc = spawnSync('node', buildRunnerArgs(specRelPath), {
+function runSpecProcess(specRelPath) {
+  return spawnSync('node', buildRunnerArgs(specRelPath), {
     cwd: ROOT_DIR,
     env: {...process.env},
     encoding: 'utf8',
     timeout: SPEC_TIMEOUT_MS,
   });
+}
+
+function executeSingleSpec(specRelPath) {
+  const startedAt = Date.now();
+  const proc = runSpecProcess(specRelPath);
   const passed = proc.status === EXIT_SUCCESS;
   console.log(
       `[${passed ? 'PASS' : 'FAIL'}] ${specRelPath} ` +
-      `(${Date.now() - startedAt} ms, status=${proc.status})`,
+    `(${Date.now() - startedAt} ms, status=${proc.status})`,
   );
   if (!passed) {
     printFailureOutput(proc);
