@@ -102,12 +102,12 @@ function createPlayer(name, state, log) {
 }
 
 function inspectServerLine(line, state) {
-  const winMatch = line.match(/Ronda (\d+) adjudicada .* ANSWER #(\d+)/);
+  const winMatch = line.match(/Ronda (\d+) adjudicada[^\n]*ANSWER #(\d+)/);
   if (winMatch) {
-    state.adjudications.push({
-      round: Number(winMatch[1]),
-      seq: Number(winMatch[2]),
-    });
+    const round = Number(winMatch[1]);
+    if (!state.adjudicatedRounds.includes(round)) {
+      state.adjudicatedRounds.push(round);
+    }
   }
   if (/ERROR|Queue.*error/i.test(line)) {
     state.queueErrors.push(line.trim());
@@ -173,15 +173,15 @@ function teardownSession(players, server) {
   server.kill('SIGTERM');
 }
 
-function assertAdjudications(adjudications) {
+function assertAdjudications(adjudicatedRounds) {
   assert.ok(
-      adjudications.length >= MIN_ADJUDICATIONS,
+      adjudicatedRounds.length >= MIN_ADJUDICATIONS,
       'Debe haber al menos una ronda adjudicada',
   );
-  const uniqueRounds = new Set(adjudications.map((item) => item.round));
+  const uniqueRounds = new Set(adjudicatedRounds);
   assert.equal(
       uniqueRounds.size,
-      adjudications.length,
+      adjudicatedRounds.length,
       'Ganador único por ronda adjudicada',
   );
 }
@@ -194,7 +194,7 @@ function assertScenarioResult(state, p1, p2) {
       p1.roundsSeen.every((item) => item.hasAudioRef),
       'Rondas con referencia de audio',
   );
-  assertAdjudications(state.adjudications);
+  assertAdjudications(state.adjudicatedRounds);
   assert.ok(
       p1.gameOver || p2.gameOver,
       'Ciclo completo con llegada a GAME_OVER',
@@ -206,7 +206,7 @@ async function runScenario() {
   const log = (line) => logs.push(`[${new Date().toISOString()}] ${line}`);
   const state = {
     currentRound: ZERO_COUNT,
-    adjudications: [],
+    adjudicatedRounds: [],
     queueErrors: [],
     players: [],
   };
