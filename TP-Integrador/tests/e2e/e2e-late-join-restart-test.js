@@ -77,18 +77,23 @@ function handlePlayerMessage(player, msg, state, log) {
   }
 }
 
+function attachPlayerHandlers(player, state, log, reject) {
+  const {name, ws} = player;
+  ws.on('open', () => {
+    log(`[WS] ${name} conectado -> JOIN`);
+    ws.send(JSON.stringify({type: 'JOIN', username: name}));
+  });
+  ws.on('message', (raw) => {
+    handlePlayerMessage(player, JSON.parse(raw.toString()), state, log);
+  });
+  ws.on('error', reject);
+}
+
 function connectPlayer(name, state, log) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
     const player = createPlayerRecord(name, ws);
-    ws.on('open', () => {
-      log(`[WS] ${name} conectado -> JOIN`);
-      ws.send(JSON.stringify({type: 'JOIN', username: name}));
-    });
-    ws.on('message', (raw) => {
-      handlePlayerMessage(player, JSON.parse(raw.toString()), state, log);
-    });
-    ws.on('error', reject);
+    attachPlayerHandlers(player, state, log, reject);
     state.players.push(player);
     setTimeout(() => resolve(player), CONNECT_SETTLE_MS);
   });
