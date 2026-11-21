@@ -25,6 +25,7 @@ const CORE_SCRIPTS = [
   'test:c19',
   'test:c20',
   'test:c21',
+  'test:score-display',
   'test:e2e:c22',
   'test:e2e:c23',
   'test:c24',
