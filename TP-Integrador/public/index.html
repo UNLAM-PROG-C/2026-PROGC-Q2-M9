@@ -558,11 +558,12 @@ function handleCorrectAnswer(data) {
 }
 
 function handleWrongAnswer(data) {
-  addAttempt(data.guess, false, data.potentialPoints);
   currentPotentialPoints = Math.max(
       MIN_POTENTIAL_POINTS,
       data.potentialPoints - WRONG_ANSWER_PENALTY,
   );
+  const penalty = data.potentialPoints - currentPotentialPoints;
+  addAttempt(data.guess, false, penalty);
   document.getElementById('potential-points').innerText =
     `Potenciales puntos: ${currentPotentialPoints} pts`;
 }
