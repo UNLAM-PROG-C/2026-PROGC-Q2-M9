@@ -10,6 +10,10 @@ import {fileURLToPath} from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, '../..');
+const SPEC_TIMEOUT_MS = 60000;
+const EXIT_SUCCESS = 0;
+const MIN_SPECS_REQUIRED = 1;
+const SPEC_FILE_PATTERN = /-(test)\.js$/;
 
 const CANDIDATE_SPECS = [
   'tests/job-queue-test.js',
@@ -20,57 +24,59 @@ const CANDIDATE_SPECS = [
   'tests/alt02-matrix.js',
 ];
 
+function buildRunnerArgs(specRelPath) {
+  const absPath = path.join(ROOT_DIR, specRelPath);
+  return SPEC_FILE_PATTERN.test(specRelPath) ? ['--test', absPath] : [absPath];
+}
+
+function printFailureOutput(proc) {
+  if (proc.stdout) {
+    console.error(proc.stdout);
+  }
+  if (proc.stderr) {
+    console.error(proc.stderr);
+  }
+}
+
+function executeSingleSpec(specRelPath) {
+  const startedAt = Date.now();
+  const proc = spawnSync('node', buildRunnerArgs(specRelPath), {
+    cwd: ROOT_DIR,
+    env: {...process.env},
+    encoding: 'utf8',
+    timeout: SPEC_TIMEOUT_MS,
+  });
+  const passed = proc.status === EXIT_SUCCESS;
+  console.log(
+      `[${passed ? 'PASS' : 'FAIL'}] ${specRelPath} ` +
+      `(${Date.now() - startedAt} ms, status=${proc.status})`,
+  );
+  if (!passed) {
+    printFailureOutput(proc);
+  }
+  return {spec: specRelPath, passed, status: proc.status};
+}
+
+function printSummary(results) {
+  const failedCount = results.filter((item) => !item.passed).length;
+  console.log('\n=== RESUMEN REGRESIÓN V4-C26 ===');
+  console.log(`Total ejecutados: ${results.length}`);
+  console.log(`Aprobados: ${results.length - failedCount}`);
+  console.log(`Fallidos: ${failedCount}\n`);
+  return failedCount;
+}
+
 function runRegressionSuite() {
-  const existing = CANDIDATE_SPECS.filter(
+  const existingSpecs = CANDIDATE_SPECS.filter(
       (rel) => fs.existsSync(path.join(ROOT_DIR, rel)),
   );
   assert.ok(
-      existing.length >= 1,
+      existingSpecs.length >= MIN_SPECS_REQUIRED,
       'Debe existir al menos un test de regresión en tests/',
   );
-
-  const results = [];
-  for (const rel of existing) {
-    const abs = path.join(ROOT_DIR, rel);
-    const useNodeTest = /-(test)\.js$/.test(rel);
-    const args = useNodeTest ? ['--test', abs] : [abs];
-    const startedAt = Date.now();
-    const proc = spawnSync('node', args, {
-      cwd: ROOT_DIR,
-      env: {...process.env},
-      encoding: 'utf8',
-      timeout: 60000,
-    });
-    const durationMs = Date.now() - startedAt;
-    const passed = proc.status === 0;
-    results.push({
-      spec: rel,
-      mode: useNodeTest ? 'node --test' : 'node',
-      passed,
-      durationMs,
-      status: proc.status,
-    });
-    console.log(
-        `[${passed ? 'PASS' : 'FAIL'}] ${rel} (${durationMs} ms, ` +
-        `status=${proc.status})`,
-    );
-    if (!passed) {
-      if (proc.stdout) {
-        console.error(proc.stdout);
-      }
-      if (proc.stderr) {
-        console.error(proc.stderr);
-      }
-    }
-  }
-
-  const failed = results.filter((r) => !r.passed);
-  console.log('\n=== RESUMEN REGRESIÓN V4-C26 ===');
-  console.log(`Total ejecutados: ${results.length}`);
-  console.log(`Aprobados: ${results.length - failed.length}`);
-  console.log(`Fallidos: ${failed.length}\n`);
-
-  assert.equal(failed.length, 0, 'Todos los specs de regresión deben pasar');
+  const results = existingSpecs.map(executeSingleSpec);
+  const failedCount = printSummary(results);
+  assert.equal(failedCount, EXIT_SUCCESS, 'Todos los specs deben pasar');
 }
 
 runRegressionSuite();
