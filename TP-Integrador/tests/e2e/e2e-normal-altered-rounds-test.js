@@ -10,187 +10,215 @@ import WebSocket from 'ws';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, '../..');
-const PORT = Number.parseInt(process.env.C22_PORT || '3205', 10);
-const ROUNDS = Number.parseInt(process.env.C22_ROUNDS || '4', 10);
-const ANSWER = process.env.C22_ANSWER || 'E2E C22 SONG';
+const DEFAULT_PORT = 3205;
+const DEFAULT_ROUNDS = 4;
+const DEFAULT_ANSWER = 'E2E C22 SONG';
 const TIMEOUT_MS = 25000;
+const CONNECT_SETTLE_MS = 150;
+const ROUND_ANSWER_DELAY_MS = 220;
+const FOLLOWER_DELAY_MS = 25;
+const FINAL_DRAIN_MS = 900;
+const ZERO_COUNT = 0;
+const MIN_ROUNDS_SEEN = 1;
+const MIN_ADJUDICATIONS = 1;
+const PARITY_DIVISOR = 2;
+const FIRST_ROUND = 1;
+
+const PORT = Number.parseInt(process.env.C22_PORT || String(DEFAULT_PORT), 10);
+const ROUNDS = Number.parseInt(
+    process.env.C22_ROUNDS || String(DEFAULT_ROUNDS),
+    10,
+);
+const ANSWER = process.env.C22_ANSWER || DEFAULT_ANSWER;
+
+function buildServerEnv() {
+  return {
+    ...process.env,
+    TRIVIA_TEST_MODE: '1',
+    TRIVIA_TEST_ROUNDS: String(ROUNDS),
+    TRIVIA_TEST_START_DELAY_MS: '300',
+    TRIVIA_TEST_SONG_TITLE: ANSWER,
+    TRIVIA_TEST_QUEUE_DRAIN_DELAY_MS: '20',
+    PORT: String(PORT),
+  };
+}
 
 function startServer() {
   return spawn('node', [path.join(ROOT_DIR, 'server.js')], {
     cwd: ROOT_DIR,
-    env: {
-      ...process.env,
-      TRIVIA_TEST_MODE: '1',
-      TRIVIA_TEST_ROUNDS: String(ROUNDS),
-      TRIVIA_TEST_START_DELAY_MS: '300',
-      TRIVIA_TEST_SONG_TITLE: ANSWER,
-      TRIVIA_TEST_QUEUE_DRAIN_DELAY_MS: '20',
-      PORT: String(PORT),
-    },
+    env: buildServerEnv(),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+}
+
+function createPlayerModel(name, ws) {
+  return {
+    name,
+    ws,
+    readySeen: false,
+    roundsSeen: [],
+    gameOver: null,
+  };
+}
+
+function recordRoundMsg(player, msg, state, log) {
+  const round = msg.round ?? state.currentRound;
+  const already = player.roundsSeen.some((entry) => entry.round === round);
+  if (!round || already) {
+    return;
+  }
+  const hasAudioRef = Boolean(msg.audioUrl || msg.song);
+  player.roundsSeen.push({round, hasAudioRef});
+  log(`[ROUND] ${player.name} r=${round} audio=${hasAudioRef}`);
+}
+
+function handlePlayerMsg(player, msg, state, log) {
+  if (msg.type === 'WAITING_START') {
+    player.readySeen = true;
+    log(`[READY] ${player.name} en espera/listo`);
+  } else if (msg.type === 'INIT_GAME' || msg.type === 'NEW_SONG') {
+    recordRoundMsg(player, msg, state, log);
+  } else if (msg.type === 'GAME_OVER') {
+    player.gameOver = msg;
+    log(`[GAME_OVER] ${player.name} recibió fin de partida`);
+  }
 }
 
 function createPlayer(name, state, log) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
-    const player = {
-      name,
-      ws,
-      readySeen: false,
-      roundsSeen: [],
-      gameOver: null,
-    };
-
+    const player = createPlayerModel(name, ws);
     ws.on('open', () => {
       log(`[WS] ${name} conectado -> enviando JOIN`);
       ws.send(JSON.stringify({type: 'JOIN', username: name}));
     });
-
     ws.on('message', (raw) => {
-      const msg = JSON.parse(raw.toString());
-      if (msg.type === 'WAITING_START') {
-        player.readySeen = true;
-        log(`[READY] ${name} en espera/listo`);
-      } else if (msg.type === 'INIT_GAME' || msg.type === 'NEW_SONG') {
-        const round = msg.round ?? state.currentRound;
-        const already = player.roundsSeen.some((r) => r.round === round);
-        if (round && !already) {
-          const info = {
-            round,
-            type: msg.type,
-            mode: msg.mode || 'NORMAL',
-            hasAudioRef: Boolean(msg.audioUrl || msg.song),
-          };
-          player.roundsSeen.push(info);
-          log(
-              `[ROUND] ${name} r=${round} type=${msg.type} ` +
-              `mode=${info.mode} audio=${info.hasAudioRef}`,
-          );
-        }
-      } else if (msg.type === 'GAME_OVER') {
-        player.gameOver = msg;
-        log(`[GAME_OVER] ${name} recibió fin de partida`);
-      }
+      handlePlayerMsg(player, JSON.parse(raw.toString()), state, log);
     });
-
     ws.on('error', reject);
     state.players.push(player);
-    setTimeout(() => resolve(player), 150);
+    setTimeout(() => resolve(player), CONNECT_SETTLE_MS);
   });
 }
 
 function inspectServerLine(line, state) {
-  const winMatch = line.match(/Ronda (\d+) adjudicada .* (ANSWER #\d+)/);
+  const winMatch = line.match(/Ronda (\d+) adjudicada .* ANSWER #(\d+)/);
   if (winMatch) {
     state.adjudications.push({
       round: Number(winMatch[1]),
-      seq: winMatch[2],
+      seq: Number(winMatch[2]),
     });
-  }
-  const rejMatch = line.match(
-      /ANSWER #\d+ descartado: ronda (\d+) ya adjudicada/,
-  );
-  if (rejMatch) {
-    state.rejections.push(Number(rejMatch[1]));
   }
   if (/ERROR|Queue.*error/i.test(line)) {
     state.queueErrors.push(line.trim());
   }
 }
 
+function processServerChunk(chunk, state, stateRef, resolve, timer) {
+  stateRef.out += chunk.toString();
+  for (const line of stateRef.out.split(/\r?\n/)) {
+    if (line.trim()) {
+      inspectServerLine(line, state);
+    }
+  }
+  if (stateRef.out.includes(`http://localhost:${PORT}`)) {
+    clearTimeout(timer);
+    resolve();
+  }
+}
+
 function waitForServer(server, state) {
   return new Promise((resolve, reject) => {
-    let serverOutput = '';
+    const stateRef = {out: ''};
     const timer = setTimeout(
         () => reject(new Error('Timeout esperando inicio del servidor E2E')),
         TIMEOUT_MS,
     );
     server.stdout.on('data', (chunk) => {
-      const text = chunk.toString();
-      serverOutput += text;
-      for (const line of text.split(/\r?\n/)) {
-        if (line.trim()) {
-          inspectServerLine(line, state);
-        }
-      }
-      if (serverOutput.includes(`http://localhost:${PORT}`)) {
-        clearTimeout(timer);
-        resolve();
-      }
+      processServerChunk(chunk, state, stateRef, resolve, timer);
     });
     server.stderr.on('data', (chunk) => {
-      serverOutput += chunk.toString();
+      stateRef.out += chunk.toString();
     });
   });
 }
 
+function sleep(ms) {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
+function sendAnswerIfOpen(player) {
+  if (player.ws.readyState === WebSocket.OPEN) {
+    player.ws.send(JSON.stringify({type: 'ANSWER', answer: ANSWER}));
+  }
+}
+
 async function driveRounds(p1, p2, state) {
-  for (let r = 1; r <= ROUNDS; r += 1) {
-    const roundNumber = r;
-    state.currentRound = roundNumber;
-    await new Promise((res) => setTimeout(res, 220));
-    const sender = roundNumber % 2 === 1 ? p1 : p2;
-    const follower = roundNumber % 2 === 1 ? p2 : p1;
-    if (sender.ws.readyState === WebSocket.OPEN) {
-      sender.ws.send(JSON.stringify({type: 'ANSWER', answer: ANSWER}));
-    }
-    await new Promise((res) => setTimeout(res, 25));
-    if (follower.ws.readyState === WebSocket.OPEN) {
-      follower.ws.send(JSON.stringify({type: 'ANSWER', answer: ANSWER}));
+  for (let r = FIRST_ROUND; r <= ROUNDS; r += FIRST_ROUND) {
+    state.currentRound = r;
+    await sleep(ROUND_ANSWER_DELAY_MS);
+    const oddRound = r % PARITY_DIVISOR === FIRST_ROUND;
+    sendAnswerIfOpen(oddRound ? p1 : p2);
+    await sleep(FOLLOWER_DELAY_MS);
+    sendAnswerIfOpen(oddRound ? p2 : p1);
+  }
+}
+
+function teardownSession(players, server) {
+  for (const player of players) {
+    if (player.ws.readyState === WebSocket.OPEN) {
+      player.ws.close();
     }
   }
+  server.kill('SIGTERM');
+}
+
+function assertAdjudications(adjudications) {
+  assert.ok(
+      adjudications.length >= MIN_ADJUDICATIONS,
+      'Debe haber al menos una ronda adjudicada',
+  );
+  const uniqueRounds = new Set(adjudications.map((item) => item.round));
+  assert.equal(
+      uniqueRounds.size,
+      adjudications.length,
+      'Ganador único por ronda adjudicada',
+  );
+}
+
+function assertScenarioResult(state, p1, p2) {
+  assert.equal(state.queueErrors.length, ZERO_COUNT, 'Sin errores de cola');
+  assert.ok(p1.roundsSeen.length >= MIN_ROUNDS_SEEN, 'Jugador-1 ve rondas');
+  assert.ok(p2.roundsSeen.length >= MIN_ROUNDS_SEEN, 'Jugador-2 ve rondas');
+  assert.ok(
+      p1.roundsSeen.every((item) => item.hasAudioRef),
+      'Rondas con referencia de audio',
+  );
+  assertAdjudications(state.adjudications);
+  assert.ok(
+      p1.gameOver || p2.gameOver,
+      'Ciclo completo con llegada a GAME_OVER',
+  );
 }
 
 async function runScenario() {
   const logs = [];
   const log = (line) => logs.push(`[${new Date().toISOString()}] ${line}`);
   const state = {
-    currentRound: 0,
+    currentRound: ZERO_COUNT,
     adjudications: [],
-    rejections: [],
     queueErrors: [],
     players: [],
   };
-
   const server = startServer();
   await waitForServer(server, state);
-  log(`[SERVER] Levantado en puerto ${PORT} (${ROUNDS} rondas)`);
-
   const p1 = await createPlayer('Jugador-1', state, log);
   const p2 = await createPlayer('Jugador-2', state, log);
   await driveRounds(p1, p2, state);
-  await new Promise((res) => setTimeout(res, 900));
-
-  for (const p of state.players) {
-    if (p.ws.readyState === WebSocket.OPEN) {
-      p.ws.close();
-    }
-  }
-  server.kill('SIGTERM');
-
-  console.log('\n=== EVIDENCIA E2E V4-C22 ===');
-  logs.forEach((entry) => console.log(entry));
-  console.log(`Adjudicaciones: ${JSON.stringify(state.adjudications)}`);
-  console.log(`Rechazos post-adjudicación: ${state.rejections.length}\n`);
-
-  assert.equal(state.queueErrors.length, 0, 'Sin errores de cola');
-  assert.ok(p1.roundsSeen.length >= 1, 'Jugador-1 debe ver rondas');
-  assert.ok(p2.roundsSeen.length >= 1, 'Jugador-2 debe ver rondas');
-  assert.ok(
-      p1.roundsSeen.every((item) => item.hasAudioRef),
-      'Rondas deben incluir referencia de audio',
-  );
-  const uniqueWinners = new Set(state.adjudications.map((a) => a.round));
-  assert.equal(
-      uniqueWinners.size,
-      state.adjudications.length,
-      'Ganador único por ronda adjudicada',
-  );
-  assert.ok(
-      p1.gameOver || p2.gameOver || state.adjudications.length >= 1,
-      'Ciclo completo con adjudicación / GAME_OVER',
-  );
+  await sleep(FINAL_DRAIN_MS);
+  teardownSession(state.players, server);
+  console.log('\n=== EVIDENCIA E2E V4-C22 ===\n' + logs.join('\n') + '\n');
+  assertScenarioResult(state, p1, p2);
 }
 
 runScenario().catch((err) => {
