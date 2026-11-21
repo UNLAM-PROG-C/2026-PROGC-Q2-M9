@@ -75,59 +75,71 @@ const server = spawn(process.execPath, [serverPath], {
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 
-/**
- * Extrae recepciones, tamaños de cola, adjudicaciones y descartes de logs.
- * Analiza cada chunk por separado; no recompone líneas partidas entre chunks.
- * @param {string} text Fragmento de stdout del servidor.
- */
+
+const RECEIPT_PATTERN =
+  /ANSWER #(\d+) recibido de \[[^|]+\| ([^\]]+)\] en ronda (\d+)\./;
+const ENQUEUE_PATTERN = /\[Q\+\] ANSWER #(\d+) encolado\. queueSize=(\d+)\./;
+const ADJUDICATION_PATTERN =
+  /\[GC✓\] Ronda (\d+) adjudicada .* ANSWER #(\d+)\./;
+const REJECTION_PATTERN =
+  /\[GCx\] ANSWER #(\d+) descartado: ronda (\d+) ya adjudicada/;
+const CORRECT_ANSWER_SCORE = 100;
+
 function consumeServerText(text) {
   process.stdout.write(text);
   for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line) {
-      continue;
-    }
-
-    let match = line.match(
-        /ANSWER #(\d+) recibido de \[[^|]+\| ([^\]]+)\] en ronda (\d+)\./,
-    );
-    if (match) {
-      const receipt = {
-        sequence: Number(match[1]),
-        displayName: match[2].trim(),
-        round: Number(match[3]),
-      };
-      answerReceipts.push(receipt);
-      maybeReleaseFollowersAfterServerReceipt(receipt);
-    }
-
-    match = line.match(/\[Q\+\] ANSWER #(\d+) encolado\. queueSize=(\d+)\./);
-    if (match) {
-      queueEnqueues.push({sequence: Number(match[1]), size: Number(match[2])});
-    }
-
-    match = line.match(/\[GC✓\] Ronda (\d+) adjudicada .* ANSWER #(\d+)\./);
-    if (match) {
-      adjudications.push({round: Number(match[1]), sequence: Number(match[2])});
-    }
-
-    match = line.match(
-        /\[GCx\] ANSWER #(\d+) descartado: ronda (\d+) ya adjudicada/,
-    );
-    if (match) {
-      rejections.push({sequence: Number(match[1]), round: Number(match[2])});
-    }
+    consumeServerLine(rawLine.trim());
   }
+}
+
+function consumeServerLine(line) {
+  if (!line) return;
+  recordReceipt(line);
+  recordQueueEnqueue(line);
+  recordAdjudication(line);
+  recordRejection(line);
+}
+
+function recordReceipt(line) {
+  const match = line.match(RECEIPT_PATTERN);
+  if (!match) return;
+  const receipt = {
+    sequence: Number(match[1]),
+    displayName: match[2].trim(),
+    round: Number(match[3]),
+  };
+  answerReceipts.push(receipt);
+  maybeReleaseFollowersAfterServerReceipt(receipt);
+}
+
+function recordQueueEnqueue(line) {
+  const match = line.match(ENQUEUE_PATTERN);
+  if (!match) return;
+  queueEnqueues.push({sequence: Number(match[1]), size: Number(match[2])});
+}
+
+function recordAdjudication(line) {
+  const match = line.match(ADJUDICATION_PATTERN);
+  if (!match) return;
+  adjudications.push({round: Number(match[1]), sequence: Number(match[2])});
+}
+
+function recordRejection(line) {
+  const match = line.match(REJECTION_PATTERN);
+  if (!match) return;
+  rejections.push({sequence: Number(match[1]), round: Number(match[2])});
 }
 
 server.stdout.on('data', (chunk) => consumeServerText(chunk.toString()));
 server.stderr.on('data', (chunk) => process.stderr.write(chunk.toString()));
-server.on('exit', (code) => {
+server.on('exit', handleServerExit);
+
+function handleServerExit(code) {
   serverExited = true;
   if (!completed && code !== null && code !== 0) {
     failAndExit(`El servidor terminó prematuramente con código ${code}.`);
   }
-});
+}
 
 const clients = Array.from({length: CLIENT_COUNT}, (_, index) => ({
   index,
@@ -145,167 +157,154 @@ const firedRounds = new Set();
 const followerReleaseByRound = new Set();
 const leadConfirmations = new Map();
 
-/**
- * Agenda el envío de la respuesta correcta si el socket sigue abierto.
- * @param {!Object} client Cliente simulado.
- * @param {number=} delayMs Demora solicitada en milisegundos, no exacta.
- */
 function sendAnswer(client, delayMs = 0) {
-  setTimeout(() => {
-    if (client.ws && client.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(JSON.stringify({type: 'ANSWER', answer: ANSWER}));
-    }
-  }, delayMs);
+  setTimeout(() => sendAnswerIfOpen(client), delayMs);
 }
 
-/**
- * Dispara una sola vez por ronda cuando todos recibieron su inicio.
- * Con líder designado, los seguidores esperan confirmación de recepción.
- * Sin líder, los offsets son relativos al disparo local del harness.
- * @param {number} round Número de ronda.
- */
+function sendAnswerIfOpen(client) {
+  if (client.ws && client.ws.readyState === WebSocket.OPEN) {
+    client.ws.send(JSON.stringify({type: 'ANSWER', answer: ANSWER}));
+  }
+}
+
 function maybeFire(round) {
-  const readySet = roundReady.get(round);
-  if (!readySet || readySet.size !== clients.length || firedRounds.has(round)) {
-    return;
-  }
-
+  if (!canFireRound(round)) return;
   firedRounds.add(round);
-
   if (LEAD_CLIENT_NUMBER !== null) {
-    const leader = clients[LEAD_CLIENT_NUMBER - 1];
-    console.log(
-        `[TEST] FIRE ronda ${round}: primero ${leader.name}; ` +
-      'seguidores se liberan solo después de confirmar su recepción en ' +
-      'el servidor.',
-    );
-    sendAnswer(leader, 0);
+    fireLeader(round);
     return;
   }
+  fireAllWithOffsets(round);
+}
 
+function canFireRound(round) {
+  const readySet = roundReady.get(round);
+  return readySet?.size === clients.length && !firedRounds.has(round);
+}
+
+function fireLeader(round) {
+  const leader = clients[LEAD_CLIENT_NUMBER - 1];
+  console.log(
+      `[TEST] FIRE ronda ${round}: primero ${leader.name}; ` +
+      'seguidores esperan confirmación del servidor.',
+  );
+  sendAnswer(leader);
+}
+
+function fireAllWithOffsets(round) {
   console.log(`[TEST] FIRE ronda ${round}: offsets=${OFFSETS.join('/')} ms.`);
   clients.forEach((client, index) => sendAnswer(client, OFFSETS[index]));
 }
 
-/**
- * Libera seguidores solo tras observar el log de recepción del líder.
- * No presupone que un menor offset implique llegar primero al servidor.
- * @param {!Object} receipt Registro de secuencia, nombre y ronda.
- */
 function maybeReleaseFollowersAfterServerReceipt(receipt) {
-  if (LEAD_CLIENT_NUMBER === null ||
-      followerReleaseByRound.has(receipt.round)) {
-    return;
-  }
-
-  const leader = clients[LEAD_CLIENT_NUMBER - 1];
-  if (receipt.displayName !== leader.name) {
-    return;
-  }
-
+  if (!shouldReleaseFollowers(receipt)) return;
   followerReleaseByRound.add(receipt.round);
   leadConfirmations.set(receipt.round, receipt);
+  logLeadConfirmation(receipt);
+  releaseFollowers();
+}
+
+function shouldReleaseFollowers(receipt) {
+  if (LEAD_CLIENT_NUMBER === null) return false;
+  if (followerReleaseByRound.has(receipt.round)) return false;
+  return receipt.displayName === clients[LEAD_CLIENT_NUMBER - 1].name;
+}
+
+function logLeadConfirmation(receipt) {
+  const leader = clients[LEAD_CLIENT_NUMBER - 1];
+  const sequence = String(receipt.sequence).padStart(6, '0');
   console.log(
       `[TEST] LEAD confirmado ronda ${receipt.round}: ${leader.name} obtuvo ` +
-    `ANSWER #${String(receipt.sequence).padStart(6, '0')}. ` +
-    'Liberando seguidores.',
+      `ANSWER #${sequence}. Liberando seguidores.`,
   );
+}
 
+function releaseFollowers() {
   clients.forEach((client, index) => {
-    if (index === LEAD_CLIENT_NUMBER - 1) {
-      return;
+    if (index !== LEAD_CLIENT_NUMBER - 1) {
+      sendAnswer(client, OFFSETS[index]);
     }
-    sendAnswer(client, OFFSETS[index]);
   });
 }
 
-/**
- * Registra mensajes relevantes y evita repetir el disparo por INIT_GAME
- * o NEW_SONG duplicados. No reproduce audio ni usa la barrera READY real.
- * @param {!Object} client Cliente simulado.
- * @param {!Object} data Mensaje JSON interpretado.
- */
 function handleClientMessage(client, data) {
-  if (data.type === 'WAITING_START') {
-    client.ready = true;
-    console.log(`[TEST] READY ${client.name}.`);
-    return;
-  }
-
-  if (data.type === 'NEW_SONG' || data.type === 'INIT_GAME') {
-    const round = data.round;
-    if (!round || client.newSongRounds.has(round)) {
-      return;
-    }
-    client.newSongRounds.add(round);
-    client.currentRound = round;
-
-    if (!roundReady.has(round)) {
-      roundReady.set(round, new Set());
-    }
-    roundReady.get(round).add(client.index);
-    maybeFire(round);
-    return;
-  }
-
-  if (data.type === 'ROUND_WINNER') {
-    const round = client.currentRound;
-    if (!client.winnersByRound.has(round)) {
-      client.winnersByRound.set(round, []);
-    }
-    client.winnersByRound.get(round).push({
-      playerId: data.winner?.playerId || null,
-      displayName: data.winner?.displayName || null,
-    });
-    return;
-  }
-
-  if (data.type === 'GAME_OVER') {
-    client.gameOver = data;
-    if (clients.every((c) => c.gameOver)) {
-      scheduleFinalize();
-    }
-  }
+  const handlers = {
+    WAITING_START: handleWaitingStart,
+    NEW_SONG: handleRoundStart,
+    INIT_GAME: handleRoundStart,
+    ROUND_WINNER: handleRoundWinner,
+    GAME_OVER: handleGameOver,
+  };
+  handlers[data.type]?.(client, data);
 }
 
-/**
- * Conecta los clientes al servidor local y solicita JOIN al abrir el socket.
- */
+function handleWaitingStart(client) {
+  client.ready = true;
+  console.log(`[TEST] READY ${client.name}.`);
+}
+
+function handleRoundStart(client, data) {
+  const round = data.round;
+  if (!round || client.newSongRounds.has(round)) return;
+  client.newSongRounds.add(round);
+  client.currentRound = round;
+  ensureRoundReady(round);
+  roundReady.get(round).add(client.index);
+  maybeFire(round);
+}
+
+function ensureRoundReady(round) {
+  if (!roundReady.has(round)) roundReady.set(round, new Set());
+}
+
+function handleRoundWinner(client, data) {
+  const round = client.currentRound;
+  if (!client.winnersByRound.has(round)) {
+    client.winnersByRound.set(round, []);
+  }
+  client.winnersByRound.get(round).push(winnerFromMessage(data));
+}
+
+function winnerFromMessage(data) {
+  return {
+    playerId: data.winner?.playerId || null,
+    displayName: data.winner?.displayName || null,
+  };
+}
+
+function handleGameOver(client, data) {
+  client.gameOver = data;
+  if (clients.every((item) => item.gameOver)) scheduleFinalize();
+}
+
 function connectClients() {
-  for (const client of clients) {
-    const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
-    client.ws = ws;
-
-    ws.on('open', () => {
-      ws.send(JSON.stringify({type: 'JOIN', username: client.name}));
-    });
-
-    ws.on('message', (raw) => {
-      const data = JSON.parse(raw.toString());
-      handleClientMessage(client, data);
-    });
-
-    ws.on('error', (error) => {
-      if (!completed) {
-        failAndExit(`${client.name}: ${error.message}`);
-      }
-    });
-  }
+  clients.forEach(connectClient);
 }
 
-/**
- * @param {number} round Ronda cuya recepción se consulta.
- * @return {!Array<!Object>} Registros de recepción de esa ronda.
- */
+function connectClient(client) {
+  const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
+  client.ws = ws;
+  ws.on('open', () => sendJoin(client));
+  ws.on('message', (raw) => receiveClientMessage(client, raw));
+  ws.on('error', (error) => handleClientError(client, error));
+}
+
+function sendJoin(client) {
+  client.ws.send(JSON.stringify({type: 'JOIN', username: client.name}));
+}
+
+function receiveClientMessage(client, raw) {
+  handleClientMessage(client, JSON.parse(raw.toString()));
+}
+
+function handleClientError(client, error) {
+  if (!completed) failAndExit(`${client.name}: ${error.message}`);
+}
+
 function roundReceipts(round) {
   return answerReceipts.filter((item) => item.round === round);
 }
 
-/**
- * Relaciona los logs de encolado con las secuencias recibidas en la ronda.
- * @param {number} round Ronda consultada.
- * @return {number} Máximo observado; cero si faltan registros.
- */
 function maxQueueSizeForRound(round) {
   const sequences = new Set(roundReceipts(round).map((item) => item.sequence));
   const sizes = queueEnqueues
@@ -314,254 +313,278 @@ function maxQueueSizeForRound(round) {
   return sizes.length ? Math.max(...sizes) : 0;
 }
 
-/**
- * Comprueba una adjudicación por ronda, orden por secuencia, recepción
- * completa, tamaño de cola, descartes, mensajes de ganador y puntaje global.
- * La comprobación del puntaje usa el leaderboard final del primer cliente;
- * no compara todos los leaderboards ni prueba todos los intercalados posibles.
- * @return {!Object} Errores detectados y métricas de la ejecución.
- */
 function validate() {
   const errors = [];
   const winnerDistribution = new Map();
-
   for (let round = 1; round <= ROUNDS; round++) {
-    const perClientWinners = clients.map(
-        (client) => client.winnersByRound.get(round) || [],
-    );
-
-    for (let i = 0; i < perClientWinners.length; i++) {
-      if (perClientWinners[i].length !== 1) {
-        errors.push(
-            `Ronda ${round}: ${clients[i].name} recibió ` +
-          `${perClientWinners[i].length} ROUND_WINNER (esperado 1).`,
-        );
-      }
-    }
-
-    const visibleWinners = perClientWinners.flat();
-    const winnerIds = visibleWinners
-        .map((winner) => winner.playerId)
-        .filter(Boolean);
-    if (winnerIds.length > 0 && new Set(winnerIds).size !== 1) {
-      errors.push(
-          `Ronda ${round}: los clientes no observaron el mismo ganador ` +
-        `(${winnerIds.join(', ')}).`,
-      );
-    }
-
-    const representativeWinner = visibleWinners[0];
-    if (representativeWinner?.displayName) {
-      winnerDistribution.set(
-          representativeWinner.displayName,
-          (winnerDistribution.get(representativeWinner.displayName) || 0) + 1,
-      );
-    }
-
-    if (EXPECTED_WINNER &&
-        representativeWinner?.displayName !== EXPECTED_WINNER) {
-      errors.push(
-          `Ronda ${round}: ganador=${representativeWinner?.displayName ||
-          'ninguno'}; esperado=${EXPECTED_WINNER}.`,
-      );
-    }
-
-    const gcItems = adjudications.filter((item) => item.round === round);
-    if (gcItems.length !== 1) {
-      errors.push(
-          `Ronda ${round}: GameCoordinator adjudicó ${gcItems.length} ` +
-        'ganadores (esperado 1).',
-      );
-    }
-
-    const receipts = roundReceipts(round);
-    if (receipts.length !== CLIENT_COUNT) {
-      errors.push(
-          `Ronda ${round}: llegaron ${receipts.length} ANSWER al servidor; ` +
-        `esperados=${CLIENT_COUNT}.`,
-      );
-    }
-
-    if (LEAD_CLIENT_NUMBER !== null) {
-      const leader = clients[LEAD_CLIENT_NUMBER - 1];
-      const confirmation = leadConfirmations.get(round);
-      if (!confirmation) {
-        errors.push(
-            `Ronda ${round}: no se confirmó la recepción autoritativa ` +
-          `del líder ${leader.name}.`,
-        );
-      } else if (receipts.length) {
-        const firstReceipt = receipts.reduce(
-            (best, item) => item.sequence < best.sequence ? item : best,
-        );
-        if (firstReceipt.displayName !== leader.name) {
-          errors.push(
-              `Ronda ${round}: la menor sequence fue de ` +
-            `${firstReceipt.displayName}; líder esperado=${leader.name}.`,
-          );
-        }
-      }
-    }
-
-    if (receipts.length && gcItems.length === 1) {
-      const firstSequence = Math.min(...receipts.map((item) => item.sequence));
-      if (gcItems[0].sequence !== firstSequence) {
-        errors.push(
-            `Ronda ${round}: se adjudicó ANSWER #${gcItems[0].sequence}, ` +
-          `pero la primera sequence recibida fue #${firstSequence}.`,
-        );
-      }
-    }
-
-    const maxQueueSize = maxQueueSizeForRound(round);
-    if (maxQueueSize < CLIENT_COUNT) {
-      errors.push(
-          `Ronda ${round}: maxQueueSize=${maxQueueSize}; esperado al menos ` +
-        `${CLIENT_COUNT} para ejercitar la colisión completa.`,
-      );
-    }
-
-    const rejectionCount = rejections.filter(
-        (item) => item.round === round,
-    ).length;
-    if (rejectionCount !== CLIENT_COUNT - 1) {
-      errors.push(
-          `Ronda ${round}: descartes por ganador previo=${rejectionCount}; ` +
-        `esperados=${CLIENT_COUNT - 1}.`,
-      );
-    }
+    validateRound(round, errors, winnerDistribution);
   }
+  validateSequenceOrder(errors);
+  return buildValidationResult(errors, winnerDistribution);
+}
 
+function validateRound(round, errors, distribution) {
+  const winners = winnerMessagesForRound(round);
+  validateWinnerMessages(round, winners, errors);
+  const representative = winners.flat()[0];
+  recordWinnerDistribution(representative, distribution);
+  validateExpectedWinner(round, representative, errors);
+  const gcItems = validateGcAdjudication(round, errors);
+  const receipts = validateReceipts(round, errors);
+  validateLeaderReceipt(round, receipts, errors);
+  validateFirstSequence(round, receipts, gcItems, errors);
+  validateQueueAndRejections(round, errors);
+}
+
+function winnerMessagesForRound(round) {
+  return clients.map((client) => client.winnersByRound.get(round) || []);
+}
+
+function validateWinnerMessages(round, winners, errors) {
+  winners.forEach((items, index) => {
+    if (items.length !== 1) {
+      errors.push(
+          `Ronda ${round}: ${clients[index].name} recibió ${items.length} ` +
+          'ROUND_WINNER (esperado 1).',
+      );
+    }
+  });
+  validateWinnerAgreement(round, winners.flat(), errors);
+}
+
+function validateWinnerAgreement(round, winners, errors) {
+  const ids = winners.map((winner) => winner.playerId).filter(Boolean);
+  if (ids.length > 0 && new Set(ids).size !== 1) {
+    errors.push(
+        `Ronda ${round}: los clientes no observaron el mismo ganador ` +
+        `(${ids.join(', ')}).`,
+    );
+  }
+}
+
+function recordWinnerDistribution(winner, distribution) {
+  if (!winner?.displayName) return;
+  const current = distribution.get(winner.displayName) || 0;
+  distribution.set(winner.displayName, current + 1);
+}
+
+function validateExpectedWinner(round, winner, errors) {
+  if (!EXPECTED_WINNER || winner?.displayName === EXPECTED_WINNER) return;
+  const actual = winner?.displayName || 'ninguno';
+  errors.push(
+      `Ronda ${round}: ganador=${actual}; esperado=${EXPECTED_WINNER}.`,
+  );
+}
+
+function validateGcAdjudication(round, errors) {
+  const items = adjudications.filter((item) => item.round === round);
+  if (items.length !== 1) {
+    errors.push(
+        `Ronda ${round}: GameCoordinator adjudicó ${items.length} ` +
+        'ganadores (esperado 1).',
+    );
+  }
+  return items;
+}
+
+function validateReceipts(round, errors) {
+  const receipts = roundReceipts(round);
+  if (receipts.length !== CLIENT_COUNT) {
+    errors.push(
+        `Ronda ${round}: llegaron ${receipts.length} ANSWER al servidor; ` +
+        `esperados=${CLIENT_COUNT}.`,
+    );
+  }
+  return receipts;
+}
+
+function validateLeaderReceipt(round, receipts, errors) {
+  if (LEAD_CLIENT_NUMBER === null) return;
+  const leader = clients[LEAD_CLIENT_NUMBER - 1];
+  const confirmation = leadConfirmations.get(round);
+  if (!confirmation) {
+    errors.push(`Ronda ${round}: no se confirmó líder ${leader.name}.`);
+    return;
+  }
+  validateFirstLeaderReceipt(round, receipts, leader, errors);
+}
+
+function validateFirstLeaderReceipt(round, receipts, leader, errors) {
+  if (!receipts.length) return;
+  const first = receipts.reduce((best, item) =>
+    item.sequence < best.sequence ? item : best,
+  );
+  if (first.displayName !== leader.name) {
+    errors.push(
+        `Ronda ${round}: primera recepción=${first.displayName}; ` +
+        `líder esperado=${leader.name}.`,
+    );
+  }
+}
+
+function validateFirstSequence(round, receipts, gcItems, errors) {
+  if (!receipts.length || gcItems.length !== 1) return;
+  const first = Math.min(...receipts.map((item) => item.sequence));
+  if (gcItems[0].sequence !== first) {
+    errors.push(
+        `Ronda ${round}: adjudicado #${gcItems[0].sequence}; ` +
+        `primero recibido #${first}.`,
+    );
+  }
+}
+
+function validateQueueAndRejections(round, errors) {
+  const maxQueueSize = maxQueueSizeForRound(round);
+  if (maxQueueSize < CLIENT_COUNT) {
+    errors.push(
+        `Ronda ${round}: maxQueueSize=${maxQueueSize}; ` +
+        `esperado>=${CLIENT_COUNT}.`,
+    );
+  }
+  validateRejections(round, errors);
+}
+
+function validateRejections(round, errors) {
+  const count = rejections.filter((item) => item.round === round).length;
+  if (count !== CLIENT_COUNT - 1) {
+    errors.push(
+        `Ronda ${round}: descartes=${count}; esperados=${CLIENT_COUNT - 1}.`,
+    );
+  }
+}
+
+function validateSequenceOrder(errors) {
   const sequences = answerReceipts.map((item) => item.sequence);
-  const uniqueSequences = new Set(sequences);
-  if (uniqueSequences.size !== sequences.length) {
+  if (new Set(sequences).size !== sequences.length) {
     errors.push('Hay sequence duplicadas en los ANSWER recibidos.');
   }
-  for (let i = 1; i < sequences.length; i++) {
-    if (sequences[i] <= sequences[i - 1]) {
+  validateMonotonicSequences(sequences, errors);
+}
+
+function validateMonotonicSequences(sequences, errors) {
+  for (let index = 1; index < sequences.length; index++) {
+    if (sequences[index] <= sequences[index - 1]) {
       errors.push(
-          `Sequence no monotónica: ${sequences[i - 1]} -> ${sequences[i]}.`,
+          `Sequence no monotónica: ${sequences[index - 1]} -> ` +
+          `${sequences[index]}.`,
       );
-      break;
+      return;
     }
   }
+}
 
-  const finalLeaderboard = clients[0].gameOver?.leaderboard || [];
-  const totalScore = finalLeaderboard.reduce(
-      (sum, player) => sum + Number(player.score || 0), 0,
-  );
-  const expectedScore = ROUNDS * 100;
-  if (totalScore !== expectedScore) {
-    errors.push(
-        `Score total=${totalScore}; esperado=${expectedScore} ` +
-      '(un único incremento de 100 por ronda).',
-    );
-  }
-
+function buildValidationResult(errors, winnerDistribution) {
+  const sequences = answerReceipts.map((item) => item.sequence);
+  const totalScore = validateTotalScore(errors);
   const globalMaxQueueSize = queueEnqueues.length ?
-    Math.max(...queueEnqueues.map((item) => item.size)) :
-    0;
-
+    Math.max(...queueEnqueues.map((item) => item.size)) : 0;
   return {
     errors, totalScore, sequences, winnerDistribution, globalMaxQueueSize,
   };
 }
 
-/**
- * Agenda una única validación tras esperar los mensajes y logs pendientes.
- */
-function scheduleFinalize() {
-  if (completed || finalizeScheduled) {
-    return;
+function validateTotalScore(errors) {
+  const leaderboard = clients[0].gameOver?.leaderboard || [];
+  const total = leaderboard.reduce(
+      (sum, player) => sum + Number(player.score || 0), 0,
+  );
+  const expected = ROUNDS * CORRECT_ANSWER_SCORE;
+  if (total !== expected) {
+    errors.push(`Score total=${total}; esperado=${expected}.`);
   }
+  return total;
+}
+
+function scheduleFinalize() {
+  if (completed || finalizeScheduled) return;
   finalizeScheduled = true;
   setTimeout(finalize, SETTLE_MS);
 }
 
-/**
- * Informa las métricas, valida el escenario y fija el código de salida.
- */
 function finalize() {
-  if (completed) {
-    return;
-  }
+  if (completed) return;
   completed = true;
+  const result = validate();
+  logResult(result);
+  cleanup();
+  process.exitCode = result.errors.length ? 1 : 0;
+}
 
-  const {
-    errors, totalScore, sequences, winnerDistribution, globalMaxQueueSize,
-  } = validate();
-  const distributionText = [...winnerDistribution.entries()]
-      .map(([name, count]) => `${name}=${count}`)
-      .join(', ') || 'sin datos';
-
+function logResult(result) {
   console.log('\n=== ALT-02 RESULTADO ===');
+  logScenarioMetrics(result);
+  logWinnerMetrics(result);
+  logErrorMetrics(result.errors);
+  logValidationErrors(result.errors);
+}
+
+function logScenarioMetrics(result) {
   console.log(`Rondas: ${ROUNDS}`);
   console.log(`Clientes: ${clients.length}`);
   console.log(`Offsets seguidores: ${OFFSETS.join('/')} ms`);
+  logLeaderMetric();
+  console.log(`Queue drain delay (test only): ${QUEUE_DRAIN_DELAY_MS} ms`);
+  console.log(`Max queueSize observado: ${result.globalMaxQueueSize}`);
+  console.log(`ANSWER recibidos: ${answerReceipts.length}`);
+}
+
+function logLeaderMetric() {
   if (LEAD_CLIENT_NUMBER !== null) {
     console.log(
         'Lead confirmado por recepción del servidor: ' +
         `ALT02-C${LEAD_CLIENT_NUMBER}`,
     );
   }
-  console.log(`Queue drain delay (test only): ${QUEUE_DRAIN_DELAY_MS} ms`);
-  console.log(`Max queueSize observado: ${globalMaxQueueSize}`);
-  console.log(`ANSWER recibidos: ${answerReceipts.length}`);
-  console.log(
-      `Sequences: ${sequences.length ?
-      `${sequences[0]}..${sequences[sequences.length - 1]}` : 'ninguna'}`,
-  );
+}
+
+function logWinnerMetrics(result) {
+  console.log(`Sequences: ${sequenceRange(result.sequences)}`);
   console.log(`Adjudicaciones GC: ${adjudications.length}`);
   console.log(`Descartes por ganador previo: ${rejections.length}`);
-  console.log(`Score total: ${totalScore}`);
-  console.log(`Ganadores: ${distributionText}`);
-  if (EXPECTED_WINNER) {
-    console.log(
-        `Ganador esperado por recepción confirmada: ${EXPECTED_WINNER}`,
-    );
-  }
-  console.log(
-      `doubleWinner: ${errors.filter((e) => e.includes('adjudicó')).length}`,
-  );
-  console.log(
-      'clientMismatch: ' +
-      `${errors.filter((e) => e.includes('mismo ganador')).length}`,
-  );
+  console.log(`Score total: ${result.totalScore}`);
+  const distribution = winnerDistributionText(result.winnerDistribution);
+  console.log(`Ganadores: ${distribution}`);
+  if (EXPECTED_WINNER) console.log(`Ganador esperado: ${EXPECTED_WINNER}`);
+}
+
+function sequenceRange(sequences) {
+  if (!sequences.length) return 'ninguna';
+  return `${sequences[0]}..${sequences[sequences.length - 1]}`;
+}
+
+function winnerDistributionText(distribution) {
+  return [...distribution.entries()]
+      .map(([name, count]) => `${name}=${count}`)
+      .join(', ') || 'sin datos';
+}
+
+function logErrorMetrics(errors) {
+  const doubleWinner = errors.filter((e) => e.includes('adjudicó')).length;
+  const mismatch = errors.filter((e) => e.includes('mismo ganador')).length;
+  console.log(`doubleWinner: ${doubleWinner}`);
+  console.log(`clientMismatch: ${mismatch}`);
   console.log(`PASS: ${errors.length === 0 ? `${ROUNDS}/${ROUNDS}` : 'NO'}`);
-
-  if (errors.length) {
-    console.log('\nErrores:');
-    for (const error of errors) {
-      console.log(`- ${error}`);
-    }
-  }
-
-  cleanup();
-  process.exitCode = errors.length ? 1 : 0;
 }
 
-/**
- * Solicita cerrar los sockets abiertos y terminar el servidor hijo.
- */
+function logValidationErrors(errors) {
+  if (!errors.length) return;
+  console.log('\nErrores:');
+  errors.forEach((error) => console.log(`- ${error}`));
+}
+
 function cleanup() {
-  for (const client of clients) {
-    if (client.ws && client.ws.readyState === WebSocket.OPEN) {
-      client.ws.close();
-    }
-  }
-  if (!serverExited) {
-    server.kill();
+  clients.forEach(closeClient);
+  if (!serverExited) server.kill();
+}
+
+function closeClient(client) {
+  if (client.ws && client.ws.readyState === WebSocket.OPEN) {
+    client.ws.close();
   }
 }
 
-/**
- * Informa un fallo una sola vez, limpia recursos y fija exitCode en 1.
- * @param {string} message Motivo del fallo.
- */
 function failAndExit(message) {
-  if (completed) {
-    return;
-  }
+  if (completed) return;
   completed = true;
   console.error(`\n[TEST][FAIL] ${message}`);
   cleanup();
@@ -574,14 +597,19 @@ const timeout = setTimeout(
 timeout.unref();
 
 let serverBuffer = '';
-server.stdout.on('data', (chunk) => {
+server.stdout.on('data', handleServerStartupOutput);
+
+function handleServerStartupOutput(chunk) {
   serverBuffer += chunk.toString();
-  if (serverBuffer.includes(`Servidor web corriendo en http://localhost:${PORT}`) && clients.every((c) => !c.ws)) {
+  const readyText = `Servidor web corriendo en http://localhost:${PORT}`;
+  if (serverBuffer.includes(readyText) && clients.every((c) => !c.ws)) {
     connectClients();
   }
-});
+}
 
-process.on('SIGINT', () => {
+process.on('SIGINT', handleSigint);
+
+function handleSigint() {
   cleanup();
   process.exit(130);
-});
+}

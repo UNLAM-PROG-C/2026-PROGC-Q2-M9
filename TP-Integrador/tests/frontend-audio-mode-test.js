@@ -9,8 +9,8 @@ const INDEX_HTML_PATH = path.join(__dirname, '..', 'public', 'index.html');
 const html = fs.readFileSync(INDEX_HTML_PATH, 'utf8');
 
 function extractGameResetBlock() {
-  const start = html.indexOf('if (data.type === \'GAME_RESET\')');
-  const end = html.indexOf('if (data.type === \'CORRECT_ANSWER\')', start);
+  const start = html.indexOf('function handleGameReset(data)');
+  const end = html.indexOf('function resetAudioPlayer()', start);
   return html.slice(start, end);
 }
 
@@ -38,6 +38,6 @@ test('C21-03: cliente soporta modos NORMAL, REVERSE y LOW_PASS', () => {
 
 test('C21-04: GAME_RESET limpia el indicador de modo de audio', () => {
   const gameResetBlock = extractGameResetBlock();
-  assert.ok(gameResetBlock.includes('data.type === \'GAME_RESET\''));
+  assert.ok(html.includes('GAME_RESET: handleGameReset'));
   assert.ok(gameResetBlock.includes('resetAudioModeBadge();'));
 });

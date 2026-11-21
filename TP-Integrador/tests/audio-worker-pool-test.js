@@ -16,17 +16,17 @@ const INPUT_SAMPLES = [100, 500, 200, 600, 300, 700];
 function createPoolHarness() {
   const workers = [];
   const starts = [];
-  const createWorker = () => {
+  const createWorker = createWorkerFactory(workers, starts);
+  return {pool: new AudioWorkerPool({createWorker}), workers, starts};
+}
+
+function createWorkerFactory(workers, starts) {
+  return () => {
     const worker = new ControlledWorker(workers.length + 1, {
       dispatchLog: starts,
     });
     workers.push(worker);
     return worker;
-  };
-  return {
-    pool: new AudioWorkerPool({createWorker}),
-    workers,
-    starts,
   };
 }
 

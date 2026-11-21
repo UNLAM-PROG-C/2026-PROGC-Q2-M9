@@ -112,12 +112,17 @@ test('C20-03: payload LOW_PASS expone URL HTTP servida por el servidor', () => {
   assert.equal(payload.prepared, true);
 });
 
-test('C20-04: endpoint HTTP sirve WAV real generado desde PCM', async () => {
+function createRegisteredWav() {
   const registry = new RoundAudioRegistry();
   const wav = encodePcmToWav(createPcmResource());
   const url = registry.register({
     gameId: GAME_ID, roundId: ROUND_TWO, buffer: wav,
   });
+  return {registry, wav, url};
+}
+
+test('C20-04: endpoint HTTP sirve WAV real generado desde PCM', async () => {
+  const {registry, wav, url} = createRegisteredWav();
   await withTestServer(registry, async (baseUrl) => {
     const res = await fetch(`${baseUrl}${url}`);
     const body = Buffer.from(await res.arrayBuffer());

@@ -73,7 +73,17 @@ function createControlledScenario() {
   const workers = [];
   const dispatchLog = [];
   const completionLog = [];
-  const createWorker = () => {
+  const createWorker = controlledWorkerFactory(
+      workers, dispatchLog, completionLog,
+  );
+  const pool = new AudioWorkerPool({size: POOL_SIZE, createWorker});
+  const jobs = createJobs();
+  const pending = new Map(jobs.map((job) => [job.jobId, pool.submit(job)]));
+  return {pool, workers, jobs, pending, dispatchLog, completionLog};
+}
+
+function controlledWorkerFactory(workers, dispatchLog, completionLog) {
+  return () => {
     const worker = new ControlledWorker(
         workers.length + 1,
         {dispatchLog, completionLog, createResult: createControlledResult},
@@ -81,11 +91,8 @@ function createControlledScenario() {
     workers.push(worker);
     return worker;
   };
-  const pool = new AudioWorkerPool({size: POOL_SIZE, createWorker});
-  const jobs = createJobs();
-  const pending = new Map(jobs.map((job) => [job.jobId, pool.submit(job)]));
-  return {pool, workers, jobs, pending, dispatchLog, completionLog};
 }
+
 
 function assertInitialControlledState(scenario) {
   assert.equal(scenario.pool.getActiveCount(), POOL_SIZE);
@@ -120,23 +127,27 @@ async function completeQueuedJobs(scenario) {
 }
 
 function assertControlledDispatch(scenario) {
-  assert.deepEqual(
-      scenario.dispatchLog.map(({jobId}) => jobId),
-      createJobs().map((job) => job.jobId),
-  );
-  assert.deepEqual(
-      scenario.completionLog.map(({jobId}) => jobId),
-      ['c13-job-2', 'c13-job-1', 'c13-job-3',
-        'c13-job-6', 'c13-job-4', 'c13-job-5'],
-  );
-  assert.notDeepEqual(
-      scenario.dispatchLog.map(({jobId}) => jobId),
-      scenario.completionLog.map(({jobId}) => jobId),
-  );
-  assert.equal(scenario.pool.getQueuedCount(), 0);
-  assert.equal(scenario.pool.getActiveCount(), 0);
-  assert.equal(scenario.pool.getAvailableCount(), POOL_SIZE);
+  const dispatchIds = scenario.dispatchLog.map(({jobId}) => jobId);
+  const completionIds = scenario.completionLog.map(({jobId}) => jobId);
+  assert.deepEqual(dispatchIds, createJobs().map((job) => job.jobId));
+  assert.deepEqual(completionIds, expectedCompletionIds());
+  assert.notDeepEqual(dispatchIds, completionIds);
+  assertIdleControlledPool(scenario.pool);
 }
+
+function expectedCompletionIds() {
+  return [
+    'c13-job-2', 'c13-job-1', 'c13-job-3',
+    'c13-job-6', 'c13-job-4', 'c13-job-5',
+  ];
+}
+
+function assertIdleControlledPool(pool) {
+  assert.equal(pool.getQueuedCount(), 0);
+  assert.equal(pool.getActiveCount(), 0);
+  assert.equal(pool.getAvailableCount(), POOL_SIZE);
+}
+
 
 function assertResultMatchesJob(job, result) {
   assert.ok(result instanceof AudioResult);
