@@ -1,162 +1,39 @@
 /**
  * @fileoverview Spike C03 de viabilidad del stack de audio.
- * Comprueba que Node.js obtiene un preview de iTunes y FFmpeg lo decodifica
- * como PCM s16le estéreo a 44100 Hz. No aplica transformaciones ni genera WAV.
- * Depende de la red, la API externa y la disponibilidad del binario FFmpeg.
+ * Comprueba preview real de iTunes y decodificación FFmpeg a PCM.
  */
-import {spawn} from 'child_process';
-import ffmpegPath from 'ffmpeg-static';
+import {
+  decodeToPcm,
+  downloadPreview,
+  fetchFirstPreview,
+  ffmpegPath,
+} from './audio/audio-spike-helpers.js';
 
 const SEARCH_URL =
   'https://itunes.apple.com/search?term=daft%20punk&entity=song&limit=5';
+const SAMPLE_RATE = 44100;
+const CHANNELS = 2;
+const BITS_PER_SAMPLE = 16;
+const BYTES_PER_SAMPLE = BITS_PER_SAMPLE / 8;
 
-/**
- * Selecciona la primera canción con previewUrl de la búsqueda.
- * @return {!Promise<string>} URL del preview.
- */
-async function fetchPreviewUrl() {
-  const response = await fetch(SEARCH_URL, {
-    headers: {
-      'User-Agent': 'TriviaMusical-V4/1.0',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`iTunes Search API respondió HTTP ${response.status}`);
-  }
-
-  const data = await response.json();
-  const song = data.results.find((item) => item.previewUrl);
-
-  if (!song) {
-    throw new Error('La búsqueda no devolvió ninguna canción con previewUrl.');
-  }
-
-  console.log(
-      `[C03] Preview seleccionado: ${song.artistName} - ${song.trackName}`,
-  );
-  console.log(`[C03] previewUrl: ${song.previewUrl}`);
-
-  return song.previewUrl;
-}
-
-/**
- * Descarga el preview; rechaza HTTP fallido o contenido vacío.
- * @param {string} previewUrl URL obtenida de la búsqueda.
- * @return {!Promise<!Buffer>} Audio comprimido.
- */
-async function downloadPreview(previewUrl) {
-  const response = await fetch(previewUrl, {
-    headers: {
-      'User-Agent': 'TriviaMusical-V4/1.0',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Preview respondió HTTP ${response.status}`);
-  }
-
-  const bytes = Buffer.from(await response.arrayBuffer());
-
-  if (bytes.length === 0) {
-    throw new Error('El preview descargado está vacío.');
-  }
-
-  console.log(`[C03] Preview descargado: ${bytes.length} bytes`);
-
-  return bytes;
-}
-
-/**
- * Envía el audio a FFmpeg por stdin y reúne las muestras desde stdout.
- * Rechaza errores o salida vacía; no valida aquí los frames completos.
- * @param {!Buffer} inputBytes Audio comprimido.
- * @return {!Promise<!Buffer>} PCM s16le estéreo a 44100 Hz.
- */
-function decodeToPcm(inputBytes) {
-  return new Promise((resolve, reject) => {
-    const args = [
-      '-hide_banner',
-      '-loglevel',
-      'error',
-      '-i',
-      'pipe:0',
-      '-f',
-      's16le',
-      '-acodec',
-      'pcm_s16le',
-      '-ac',
-      '2',
-      '-ar',
-      '44100',
-      'pipe:1',
-    ];
-
-    const ffmpeg = spawn(ffmpegPath, args, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    const chunks = [];
-    const errors = [];
-
-    ffmpeg.stdout.on('data', (chunk) => chunks.push(chunk));
-    ffmpeg.stderr.on('data', (chunk) => errors.push(chunk));
-
-    ffmpeg.on('error', reject);
-
-    ffmpeg.on('close', (code) => {
-      if (code !== 0) {
-        reject(
-            new Error(
-                `FFmpeg terminó con código ${code}: ` +
-            `${Buffer.concat(errors).toString('utf8')}`,
-            ),
-        );
-        return;
-      }
-
-      const pcm = Buffer.concat(chunks);
-
-      if (pcm.length === 0) {
-        reject(new Error('FFmpeg no produjo muestras PCM.'));
-        return;
-      }
-
-      resolve(pcm);
-    });
-
-    ffmpeg.stdin.end(inputBytes);
-  });
-}
-
-/**
- * Verifica descarga y decodificación, e informa duración aproximada.
- * @return {!Promise<void>} Finaliza o rechaza ante errores.
- */
-async function main() {
-  console.log(`[C03] FFmpeg: ${ffmpegPath}`);
-
-  const previewUrl = await fetchPreviewUrl();
-  const compressedAudio = await downloadPreview(previewUrl);
-  const pcm = await decodeToPcm(compressedAudio);
-
-  const bytesPerSample = 2;
-  const channels = 2;
-  const sampleRate = 44100;
-  const frames = pcm.length / (bytesPerSample * channels);
-  const durationSeconds = frames / sampleRate;
-
+function logPcmSummary(pcm) {
+  const frameSize = BYTES_PER_SAMPLE * CHANNELS;
+  const durationSeconds = pcm.length / frameSize / SAMPLE_RATE;
   console.log(`[C03] PCM generado: ${pcm.length} bytes`);
   console.log(
-      `[C03] Formato PCM: signed 16-bit little-endian, ${channels} canales, ` +
-    `${sampleRate} Hz`,
+      `[C03] Formato PCM: signed ${BITS_PER_SAMPLE}-bit little-endian, ` +
+      `${CHANNELS} canales, ${SAMPLE_RATE} Hz`,
   );
-  console.log(
-      `[C03] Duración PCM aproximada: ${durationSeconds.toFixed(2)} s`,
-  );
-  console.log(
-      '[C03] PASS: preview real -> fetch Node -> FFmpeg -> PCM.',
-  );
+  console.log(`[C03] Duración PCM aproximada: ${durationSeconds.toFixed(2)} s`);
+}
+
+async function main() {
+  console.log(`[C03] FFmpeg: ${ffmpegPath}`);
+  const song = await fetchFirstPreview(SEARCH_URL, 'C03');
+  const compressed = await downloadPreview(song.previewUrl, 'C03');
+  const pcm = await decodeToPcm(compressed, SAMPLE_RATE, CHANNELS);
+  logPcmSummary(pcm);
+  console.log('[C03] PASS: preview real -> fetch Node -> FFmpeg -> PCM.');
 }
 
 main().catch((error) => {

@@ -47,17 +47,31 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // ALT-02 / C8: modo determinístico para pruebas automatizadas.
 // No altera el modo normal; solo se activa con TRIVIA_TEST_MODE=1.
 const TEST_MODE = process.env.TRIVIA_TEST_MODE === '1';
+const MIN_TEST_START_DELAY_MS = 100;
 const SERVER_PORT = Number.parseInt(process.env.PORT || '3000', 10);
 const TEST_ROUNDS = Math.max(
     1, Number.parseInt(process.env.TRIVIA_TEST_ROUNDS || '20', 10),
 );
 const TEST_START_DELAY_MS = Math.max(
-    100, Number.parseInt(process.env.TRIVIA_TEST_START_DELAY_MS || '1000', 10),
+    MIN_TEST_START_DELAY_MS,
+    Number.parseInt(process.env.TRIVIA_TEST_START_DELAY_MS || '1000', 10),
 );
 const TEST_SONG_TITLE = process.env.TRIVIA_TEST_SONG_TITLE || 'ALT02 TEST SONG';
 const TEST_QUEUE_DRAIN_DELAY_MS = Math.max(
     0, Number.parseInt(process.env.TRIVIA_TEST_QUEUE_DRAIN_DELAY_MS || '0', 10),
 );
+
+const DEFAULT_CONFIG_DELAY_SECONDS = 10;
+const DEFAULT_CONFIG_ROUNDS = 5;
+const DEFAULT_START_OFFSET_MS = 60000;
+const PAST_START_DELAY_MS = 30000;
+const FORCE_NEXT_DELAY_SECONDS = 5;
+const NORMAL_LOOP_INTERVAL_MS = 1000;
+const TEST_LOOP_INTERVAL_MS = 10;
+const MILLISECONDS_PER_SECOND = 1000;
+const PLAYER_ID_PAD_WIDTH = 3;
+const SEQUENCE_PAD_WIDTH = 6;
+const TIME_HH_MM_LENGTH = 5;
 
 const app = express();
 const server = http.createServer(app);
@@ -81,7 +95,7 @@ const socketByPlayerId = new Map();
  * @return {string} Identificador independiente del nombre visible.
  */
 function generatePlayerId() {
-  return `P${String(nextPlayerNumber++).padStart(3, '0')}`;
+  return `P${String(nextPlayerNumber++).padStart(PLAYER_ID_PAD_WIDTH, '0')}`;
 }
 
 /**
@@ -92,20 +106,18 @@ function generatePlayerId() {
  * @return {!Object} Registro mutable conservado en playersById.
  */
 function registerPlayer(ws, displayName) {
-  const playerId = generatePlayerId();
-  const player = {
-    playerId,
-    displayName,
-    score: 0,
-    attempts: 0,
-    connected: true,
-    eligibleFromRoundId: 1,
-  };
-
-  playersById.set(playerId, player);
-  playerIdBySocket.set(ws, playerId);
-  socketByPlayerId.set(playerId, ws);
+  const player = createPlayerRecord(displayName);
+  playersById.set(player.playerId, player);
+  playerIdBySocket.set(ws, player.playerId);
+  socketByPlayerId.set(player.playerId, ws);
   return player;
+}
+
+function createPlayerRecord(displayName) {
+  return {
+    playerId: generatePlayerId(), displayName, score: 0, attempts: 0,
+    connected: true, eligibleFromRoundId: 1,
+  };
 }
 
 /**
@@ -131,27 +143,30 @@ function getCurrentRoundId() {
  * @param {!Object} player Registro mutable del jugador recién incorporado.
  */
 function configurePlayerEligibilityOnJoin(player) {
-  const sessionState = sessionCoordinator.getState();
-
-  if (sessionState === SessionState.LOBBY) {
+  const state = sessionCoordinator.getState();
+  if (state === SessionState.LOBBY) {
     player.eligibleFromRoundId = 1;
     return;
   }
-
-  if (
-    sessionState === SessionState.ROUND_ACTIVE ||
-        sessionState === SessionState.BETWEEN_ROUNDS
-  ) {
-    player.eligibleFromRoundId = getCurrentRoundId() + 1;
-    console.log(
-        `[SC] LATE_JOIN [${player.playerId} | ${player.displayName}] ` +
-      `en ronda ${getCurrentRoundId()}; ` +
-      `elegible desde ronda ${player.eligibleFromRoundId}.`,
-    );
+  if (isActiveSessionState(state)) {
+    configureLateJoinEligibility(player);
     return;
   }
-
   player.eligibleFromRoundId = Number.POSITIVE_INFINITY;
+}
+
+function isActiveSessionState(state) {
+  return state === SessionState.ROUND_ACTIVE ||
+    state === SessionState.BETWEEN_ROUNDS;
+}
+
+function configureLateJoinEligibility(player) {
+  player.eligibleFromRoundId = getCurrentRoundId() + 1;
+  console.log(
+      `[SC] LATE_JOIN [${player.playerId} | ${player.displayName}] ` +
+      `en ronda ${getCurrentRoundId()}; ` +
+      `elegible desde ronda ${player.eligibleFromRoundId}.`,
+  );
 }
 
 /**
@@ -304,9 +319,11 @@ let answerQueueProcessingScheduled = false;
  */
 function enqueueAnswerEvent(answerEvent) {
   answerQueue.enqueue(answerEvent);
+  const sequence = String(answerEvent.sequence)
+      .padStart(SEQUENCE_PAD_WIDTH, '0');
   console.log(
-      `[Q+] ANSWER #${String(answerEvent.sequence).padStart(6, '0')} ` +
-    `encolado. queueSize=${answerQueue.size()}.`,
+      `[Q+] ANSWER #${sequence} encolado. ` +
+      `queueSize=${answerQueue.size()}.`,
   );
   scheduleAnswerQueueProcessing();
 }
@@ -339,30 +356,35 @@ function scheduleAnswerQueueProcessing() {
  */
 function processAnswerQueue() {
   try {
-    while (!answerQueue.isEmpty()) {
-      const answerEvent = answerQueue.dequeue();
-      console.log(
-          `[Q-] ANSWER #${String(answerEvent.sequence).padStart(6, '0')} ` +
-        `desencolado. queueSize=${answerQueue.size()}.`,
-      );
-      gameCoordinator.processAnswerEvent(answerEvent);
-    }
+    drainAnswerQueue();
   } finally {
     answerQueueProcessingScheduled = false;
-
-    // Si algún productor agregó trabajo mientras se cerraba este ciclo,
-    // volvemos a agendar el consumidor sin procesar fuera de la cola.
-    if (!answerQueue.isEmpty()) {
-      scheduleAnswerQueueProcessing();
-    }
+    if (!answerQueue.isEmpty()) scheduleAnswerQueueProcessing();
   }
+}
+
+function drainAnswerQueue() {
+  while (!answerQueue.isEmpty()) {
+    const answerEvent = answerQueue.dequeue();
+    logDequeuedAnswer(answerEvent);
+    gameCoordinator.processAnswerEvent(answerEvent);
+  }
+}
+
+function logDequeuedAnswer(answerEvent) {
+  const sequence = String(answerEvent.sequence)
+      .padStart(SEQUENCE_PAD_WIDTH, '0');
+  console.log(
+      `[Q-] ANSWER #${sequence} desencolado. ` +
+      `queueSize=${answerQueue.size()}.`,
+  );
 }
 
 let playlist = [];
 let currentSongIndex = 0;
 let currentRound = 0;
-let maxRounds = 5;
-let delayNextRound = 10; // segundos
+let maxRounds = DEFAULT_CONFIG_ROUNDS;
+let delayNextRound = DEFAULT_CONFIG_DELAY_SECONDS; // segundos
 let startTime = null;
 let gameStarted = false;
 let gameFinished = false;
@@ -583,37 +605,37 @@ let lastReadyBarrierStatus = null;
  * @return {boolean} True si se inició; false si rechazó las precondiciones.
  */
 function startGameFromLobby(reason) {
-  if (sessionCoordinator.getState() !== SessionState.LOBBY) {
-    return false;
-  }
-
-  const connectedPlayerIds = getConnectedPlayerIds();
-
-  if (!TEST_MODE && !sessionCoordinator.canStart(connectedPlayerIds)) {
-    return false;
-  }
-
+  if (!canStartGameFromLobby()) return false;
   lastReadyBarrierStatus = null;
-
   transitionSessionTo(SessionState.ROUND_ACTIVE, reason);
+  initializeFirstRound();
+  logCurrentRoundStart();
+  broadcastAndPrefetchCurrentRound();
+  broadcastLeaderboard();
+  broadcastSessionState();
+  return true;
+}
 
+function canStartGameFromLobby() {
+  if (sessionCoordinator.getState() !== SessionState.LOBBY) return false;
+  if (TEST_MODE) return true;
+  return sessionCoordinator.canStart(getConnectedPlayerIds());
+}
+
+function initializeFirstRound() {
   gameStarted = true;
   gameFinished = false;
   currentRound = 0;
   resetAllPlayerAttempts();
   gameCoordinator.beginRound(currentRound + 1);
+}
 
-  const initialSong = playlist[currentSongIndex];
+function logCurrentRoundStart() {
+  const song = playlist[currentSongIndex];
   console.log(
       `\n[♫] Comienza la ronda nro ${currentRound + 1} de ${maxRounds}: ` +
-    `La canción es "${initialSong.title}"`,
+      `La canción es "${song.title}"`,
   );
-
-  broadcastAndPrefetchCurrentRound();
-
-  broadcastLeaderboard();
-  broadcastSessionState();
-  return true;
 }
 
 const rl = readline.createInterface({
@@ -627,53 +649,71 @@ const rl = readline.createInterface({
  * validación exhaustiva de los datos ingresados. Luego inicia el servidor.
  */
 function askConfig() {
+  printConfigHeader();
+  const defaultTimeStr = buildDefaultStartTime();
+  const question = '1. ¿A qué hora empezamos la primera ronda? ' +
+    `(HH:MM) [Por defecto: ${defaultTimeStr}]: `;
+  rl.question(question, (answer) => askRoundDelay(answer, defaultTimeStr));
+}
+
+function printConfigHeader() {
   console.log('\n==============================================');
   console.log('   CONFIGURACIÓN DE LA PARTIDA DE TRIVIA');
   console.log('==============================================');
+}
 
-  const defaultTime = new Date(Date.now() + 60000);
-  const defaultTimeStr = defaultTime.toTimeString()
-      .split(' ')[0].substring(0, 5);
+function buildDefaultStartTime() {
+  const defaultTime = new Date(Date.now() + DEFAULT_START_OFFSET_MS);
+  const timeText = defaultTime.toTimeString().split(' ')[0];
+  return timeText.substring(0, TIME_HH_MM_LENGTH);
+}
 
-  const timeQuestion = '1. ¿A qué hora empezamos la primera ronda? ' +
-    `(HH:MM) [Por defecto: ${defaultTimeStr}]: `;
-  rl.question(timeQuestion, (ansTime) => {
-    const horaInicio = ansTime.trim() || defaultTimeStr;
+function askRoundDelay(ansTime, defaultTimeStr) {
+  const startValue = ansTime.trim() || defaultTimeStr;
+  const question = '2. ¿Cuántos segundos después de que alguien ' +
+    'adivina comienza la siguiente ronda? [Por defecto: 10]: ';
+  rl.question(question, (answer) => askRoundCount(startValue, answer));
+}
 
-    const delayQuestion = '2. ¿Cuántos segundos después de que alguien ' +
-      'adivina comienza la siguiente ronda? [Por defecto: 10]: ';
-    rl.question(delayQuestion, (ansDelay) => {
-      delayNextRound = parseInt(ansDelay) || 10;
+function askRoundCount(startValue, ansDelay) {
+  delayNextRound = parseInt(ansDelay) || DEFAULT_CONFIG_DELAY_SECONDS;
+  const question = '3. ¿Cuántas rondas vamos a jugar? ' +
+    '[Por defecto: 5]: ';
+  rl.question(question, (answer) => applyGameConfig(startValue, answer));
+}
 
-      const roundsQuestion = '3. ¿Cuántas rondas vamos a jugar? ' +
-        '[Por defecto: 5]: ';
-      rl.question(roundsQuestion, (ansRounds) => {
-        maxRounds = parseInt(ansRounds) || 5;
+function applyGameConfig(startValue, ansRounds) {
+  maxRounds = parseInt(ansRounds) || DEFAULT_CONFIG_ROUNDS;
+  startTime = parseStartTime(startValue);
+  adjustPastStartTime();
+  printSavedConfig();
+  rl.close();
+  startServerAndGameLoop();
+}
 
-        const [hours, minutes] = horaInicio.split(':');
-        startTime = new Date();
-        startTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+function parseStartTime(startValue) {
+  const [hours, minutes] = startValue.split(':');
+  const configured = new Date();
+  configured.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+  return configured;
+}
 
-        if (startTime <= new Date()) {
-          startTime = new Date(Date.now() + 30000);
-          console.log(
-              '[!] La hora indicada ya pasó o es muy próxima. ' +
-            'Iniciando en 30 segundos...',
-          );
-        }
+function adjustPastStartTime() {
+  if (startTime > new Date()) return;
+  startTime = new Date(Date.now() + PAST_START_DELAY_MS);
+  console.log(
+      '[!] La hora indicada ya pasó o es muy próxima. ' +
+      'Iniciando en 30 segundos...',
+  );
+}
 
-        console.log('\n----------------------------------------------');
-        console.log('[+] ¡Configuración guardada con éxito!');
-        console.log(`[+] Hora de inicio: ${startTime.toLocaleTimeString()}`);
-        console.log(`[+] Demora entre rondas: ${delayNextRound} segundos`);
-        console.log(`[+] Total de rondas: ${maxRounds}`);
-        console.log('----------------------------------------------\n');
-
-        rl.close();
-        startServerAndGameLoop();
-      });
-    });
-  });
+function printSavedConfig() {
+  console.log('\n----------------------------------------------');
+  console.log('[+] ¡Configuración guardada con éxito!');
+  console.log(`[+] Hora de inicio: ${startTime.toLocaleTimeString()}`);
+  console.log(`[+] Demora entre rondas: ${delayNextRound} segundos`);
+  console.log(`[+] Total de rondas: ${maxRounds}`);
+  console.log('----------------------------------------------\n');
 }
 
 /**
@@ -697,76 +737,101 @@ function normalizeText(text) {
  * No descarga audio, no valida su reproducción ni garantiza una lista no vacía.
  * @return {!Promise<void>} Promesa que se resuelve al cargar la playlist.
  */
+const ITUNES_SEARCH_URL =
+  'https://itunes.apple.com/search?term=No+Te+Va+Gustar&entity=song&limit=200';
+const FALLBACK_PREVIEW_URL =
+  'https://audio-samples.github.io/samples/mp3/' +
+  'blizzard_biasedfromthetruth.mp3';
+
 function fetchPlaylistFromItunes() {
-  return new Promise((resolve) => {
-    const url = 'https://itunes.apple.com/search?term=No+Te+Va+Gustar&entity=song&limit=200';
+  return new Promise((resolve) => requestItunesPlaylist(resolve));
+}
 
-    https.get(url, (res) => {
-      let data = '';
-      res.on('data', (chunk) => {
-        data += chunk;
-      });
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          const results = json.results || [];
+function requestItunesPlaylist(resolve) {
+  https.get(ITUNES_SEARCH_URL, (res) => {
+    collectItunesResponse(res, resolve);
+  }).on('error', (error) => handleItunesRequestError(error, resolve));
+}
 
-          const vistos = new Set();
-          const filtered = [];
-
-          for (const item of results) {
-            const artist = (item.artistName || '').toLowerCase();
-            const track = item.trackName || '';
-            const collection = (item.collectionName || '').toLowerCase();
-            const preview = item.previewUrl;
-
-            const esEnVivo = collection.includes('vivo') ||
-              collection.includes('live') || collection.includes('gira') ||
-              track.toLowerCase().includes('en vivo') ||
-              track.toLowerCase().includes('live') ||
-              collection.includes('teatro');
-
-            if (artist.includes('no te va gustar') && preview && !esEnVivo) {
-              const normalizedKey = normalizeText(track);
-              if (!vistos.has(normalizedKey)) {
-                vistos.add(normalizedKey);
-                filtered.push({
-                  title: track,
-                  artist: item.artistName,
-                  preview: preview,
-                });
-              }
-            }
-          }
-
-          for (let i = filtered.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [filtered[i], filtered[j]] = [filtered[j], filtered[i]];
-          }
-
-          playlist = filtered;
-          console.log(
-              `[*] Playlist cargada: ${playlist.length} ` +
-            'canciones de estudio únicas.',
-          );
-          resolve();
-        } catch (e) {
-          console.error('Error parseando JSON:', e);
-          playlist = [
-            {title: 'Despues de hora', artist: 'No Te Va Gustar', preview: 'https://audio-samples.github.io/samples/mp3/blizzard_biasedfromthetruth.mp3'},
-            {title: 'Ese Maldito Momento', artist: 'No Te Va Gustar', preview: 'https://audio-samples.github.io/samples/mp3/blizzard_biasedfromthetruth.mp3'},
-          ];
-          resolve();
-        }
-      });
-    }).on('error', (err) => {
-      console.error('Error conectando a iTunes:', err);
-      playlist = [
-        {title: 'Despues de hora', artist: 'No Te Va Gustar', preview: 'https://audio-samples.github.io/samples/mp3/blizzard_biasedfromthetruth.mp3'},
-      ];
-      resolve();
-    });
+function collectItunesResponse(res, resolve) {
+  let data = '';
+  res.on('data', (chunk) => {
+    data += chunk;
   });
+  res.on('end', () => processItunesResponse(data, resolve));
+}
+
+function processItunesResponse(data, resolve) {
+  try {
+    const results = JSON.parse(data).results || [];
+    playlist = buildStudioPlaylist(results);
+    console.log(
+        `[*] Playlist cargada: ${playlist.length} ` +
+        'canciones de estudio únicas.',
+    );
+  } catch (error) {
+    handleItunesParseError(error);
+  }
+  resolve();
+}
+
+function buildStudioPlaylist(results) {
+  const seen = new Set();
+  const filtered = [];
+  for (const item of results) addStudioTrack(item, seen, filtered);
+  shuffleArray(filtered);
+  return filtered;
+}
+
+function addStudioTrack(item, seen, filtered) {
+  const track = item.trackName || '';
+  if (!isEligibleStudioTrack(item, track)) return;
+  const normalizedKey = normalizeText(track);
+  if (seen.has(normalizedKey)) return;
+  seen.add(normalizedKey);
+  filtered.push({
+    title: track, artist: item.artistName, preview: item.previewUrl,
+  });
+}
+
+function isEligibleStudioTrack(item, track) {
+  const artist = (item.artistName || '').toLowerCase();
+  const collection = (item.collectionName || '').toLowerCase();
+  return artist.includes('no te va gustar') &&
+    Boolean(item.previewUrl) &&
+    !isLiveRecording(collection, track.toLowerCase());
+}
+
+function isLiveRecording(collection, track) {
+  const collectionMarkers = ['vivo', 'live', 'gira', 'teatro'];
+  const trackMarkers = ['en vivo', 'live'];
+  return collectionMarkers.some((value) => collection.includes(value)) ||
+    trackMarkers.some((value) => track.includes(value));
+}
+
+function shuffleArray(items) {
+  for (let index = items.length - 1; index > 0; index--) {
+    const target = Math.floor(Math.random() * (index + 1));
+    [items[index], items[target]] = [items[target], items[index]];
+  }
+}
+
+function handleItunesParseError(error) {
+  console.error('Error parseando JSON:', error);
+  playlist = [
+    buildFallbackSong('Despues de hora'),
+    buildFallbackSong('Ese Maldito Momento'),
+  ];
+}
+
+function handleItunesRequestError(error, resolve) {
+  console.error('Error conectando a iTunes:', error);
+  playlist = [buildFallbackSong('Despues de hora')];
+  resolve();
+}
+
+function buildFallbackSong(title) {
+  return {title, artist: 'No Te Va Gustar', preview: FALLBACK_PREVIEW_URL};
 }
 
 /**
@@ -792,26 +857,30 @@ function getRoundContext() {
  * No elimina registros de jugadores ni crea una nueva generación.
  */
 function finishGameFromAnswer() {
-  transitionSessionTo(
-      SessionState.GAME_OVER,
-      'fin de partida por respuesta correcta',
-  );
+  finishCurrentGame('fin de partida por respuesta correcta');
+}
 
+function finishCurrentGame(reason) {
+  transitionSessionTo(SessionState.GAME_OVER, reason);
   gameStarted = false;
   gameFinished = true;
-
   const finalWinner = getFinalWinner();
-  const winnerLabel = finalWinner ?
-    `[${finalWinner.playerId} | ${finalWinner.displayName}]` :
-    'Nadie';
+  broadcastGameOver(finalWinner);
+  broadcastSessionState();
+  console.log(`[*] ¡Partida finalizada! Ganador: ${winnerLabel(finalWinner)}`);
+}
 
+function broadcastGameOver(finalWinner) {
   broadcast({
     type: 'GAME_OVER',
     winner: buildWinnerView(finalWinner),
     leaderboard: buildLeaderboardView(),
   });
-  broadcastSessionState();
-  console.log(`[*] ¡Partida finalizada! Ganador: ${winnerLabel}`);
+}
+
+function winnerLabel(winner) {
+  if (!winner) return 'Nadie';
+  return `[${winner.playerId} | ${winner.displayName}]`;
 }
 
 /**
@@ -825,31 +894,31 @@ function scheduleNextRoundFromAnswer(delaySeconds) {
       SessionState.BETWEEN_ROUNDS,
       'ronda adjudicada; esperando siguiente ronda',
   );
-
   gameStarted = false;
+  transitionTimeout = setTimeout(
+      startNextRoundAfterAnswer,
+      delaySeconds * MILLISECONDS_PER_SECOND,
+  );
+}
 
-  transitionTimeout = setTimeout(() => {
-    currentRound++;
-    currentSongIndex = (currentSongIndex + 1) % playlist.length;
+function startNextRoundAfterAnswer() {
+  advanceRoundIndices();
+  transitionSessionTo(SessionState.ROUND_ACTIVE, 'inicio de siguiente ronda');
+  activateCurrentRound();
+  logCurrentRoundStart();
+  broadcastAndPrefetchCurrentRound();
+  broadcastLeaderboard();
+}
 
-    transitionSessionTo(
-        SessionState.ROUND_ACTIVE,
-        'inicio de siguiente ronda',
-    );
+function advanceRoundIndices() {
+  currentRound += 1;
+  currentSongIndex = (currentSongIndex + 1) % playlist.length;
+}
 
-    gameStarted = true;
-    resetAllPlayerAttempts();
-    gameCoordinator.beginRound(currentRound + 1);
-
-    const nextSong = playlist[currentSongIndex];
-    console.log(
-        `\n[♫] Comienza la ronda nro ${currentRound + 1} de ${maxRounds}: ` +
-      `La canción es "${nextSong.title}"`,
-    );
-
-    broadcastAndPrefetchCurrentRound();
-    broadcastLeaderboard();
-  }, delaySeconds * 1000);
+function activateCurrentRound() {
+  gameStarted = true;
+  resetAllPlayerAttempts();
+  gameCoordinator.beginRound(currentRound + 1);
 }
 
 // ALT-01 / C6: único adjudicador de AnswerEvent.
@@ -874,206 +943,236 @@ const gameCoordinator = new GameCoordinator({
  * El cierre retira el transporte y READY, pero conserva el registro histórico.
  * Los mensajes se interpretan como JSON; no hay validación completa de esquema.
  */
-wss.on('connection', (ws) => {
-  let username = '';
-  let playerId = null;
+wss.on('connection', (ws) => handleConnection(ws));
 
-  ws.on('message', (message) => {
-    const data = JSON.parse(message);
+function handleConnection(ws) {
+  const context = {username: '', playerId: null};
+  ws.on('message', (message) => handleSocketMessage(ws, context, message));
+  ws.on('close', () => handleSocketClose(ws, context));
+}
 
-    if (data.type === 'JOIN') {
-      if (playerId) {
-        console.log(
-            '[!] JOIN duplicado ignorado para ' +
-          `[${playerId} | ${username}]`,
-        );
-        return;
-      }
+function handleSocketMessage(ws, context, message) {
+  const data = JSON.parse(message);
+  if (data.type === 'JOIN') handleJoin(ws, context, data);
+  if (data.type === 'READY') handleReadyChange(ws, true);
+  if (data.type === 'UNREADY') handleReadyChange(ws, false);
+  if (data.type === 'ANSWER') handleAnswer(ws, data);
+}
 
-      username = data.username;
-      const player = registerPlayer(ws, username);
-      playerId = player.playerId;
-      configurePlayerEligibilityOnJoin(player);
-      console.log(`[+] Usuario conectado: [${playerId} | ${username}]`);
+function handleJoin(ws, context, data) {
+  if (context.playerId) {
+    logDuplicateJoin(context);
+    return;
+  }
+  const player = registerJoinedPlayer(ws, context, data.username);
+  notifyPlayerRegistered(ws, player);
+  broadcastLeaderboard();
+  broadcastSessionState();
+  sendJoinState(ws, player);
+}
 
-      ws.send(JSON.stringify({
-        type: 'PLAYER_REGISTERED',
-        playerId: player.playerId,
-        displayName: player.displayName,
-      }));
+function logDuplicateJoin(context) {
+  console.log(
+      '[!] JOIN duplicado ignorado para ' +
+      `[${context.playerId} | ${context.username}]`,
+  );
+}
 
-      broadcastLeaderboard();
-      broadcastSessionState();
+function registerJoinedPlayer(ws, context, username) {
+  context.username = username;
+  const player = registerPlayer(ws, username);
+  context.playerId = player.playerId;
+  configurePlayerEligibilityOnJoin(player);
+  console.log(
+      `[+] Usuario conectado: [${player.playerId} | ${username}]`,
+  );
+  return player;
+}
 
-      const sessionState = sessionCoordinator.getState();
+function notifyPlayerRegistered(ws, player) {
+  ws.send(JSON.stringify({
+    type: 'PLAYER_REGISTERED',
+    playerId: player.playerId,
+    displayName: player.displayName,
+  }));
+}
 
-      if (sessionState === SessionState.LOBBY) {
-        const segundosRestantes = Math.max(
-            0, Math.floor((startTime - Date.now()) / 1000),
-        );
-        ws.send(JSON.stringify({
-          type: 'WAITING_START',
-          startTime: startTime.toLocaleTimeString(),
-          secondsLeft: segundosRestantes,
-          titles: playlist.map((s) => s.title),
-        }));
-      } else if (sessionState === SessionState.GAME_OVER) {
-        ws.send(JSON.stringify({
-          type: 'GAME_OVER',
-          leaderboard: buildLeaderboardView(),
-          winner: buildWinnerView(getFinalWinner()),
-        }));
-      } else {
-        ws.send(JSON.stringify({
-          type: 'WAITING_NEXT_ROUND',
-          currentRound: getCurrentRoundId(),
-          eligibleFromRound: player.eligibleFromRoundId,
-          maxRounds,
-          titles: playlist.map((s) => s.title),
-        }));
-      }
-    }
+function sendJoinState(ws, player) {
+  const state = sessionCoordinator.getState();
+  if (state === SessionState.LOBBY) sendWaitingStart(ws);
+  else if (state === SessionState.GAME_OVER) sendGameOver(ws);
+  else sendWaitingNextRound(ws, player);
+}
 
-    if (data.type === 'READY') {
-      const player = getPlayerBySocket(ws);
+function sendWaitingStart(ws) {
+  const remainingMs = startTime - Date.now();
+  const secondsLeft = Math.max(
+      0, Math.floor(remainingMs / MILLISECONDS_PER_SECOND),
+  );
+  ws.send(JSON.stringify({
+    type: 'WAITING_START',
+    startTime: startTime.toLocaleTimeString(),
+    secondsLeft,
+    titles: playlist.map((song) => song.title),
+  }));
+}
 
-      if (!player) {
-        console.log('[SC] READY ignorado: socket sin jugador registrado.');
-        return;
-      }
+function sendGameOver(ws) {
+  ws.send(JSON.stringify({
+    type: 'GAME_OVER',
+    leaderboard: buildLeaderboardView(),
+    winner: buildWinnerView(getFinalWinner()),
+  }));
+}
 
-      try {
-        const result = sessionCoordinator.markPlayerReady(player.playerId);
+function sendWaitingNextRound(ws, player) {
+  ws.send(JSON.stringify({
+    type: 'WAITING_NEXT_ROUND',
+    currentRound: getCurrentRoundId(),
+    eligibleFromRound: player.eligibleFromRoundId,
+    maxRounds,
+    titles: playlist.map((song) => song.title),
+  }));
+}
 
-        console.log(
-            `[SC] READY [${player.playerId} | ${player.displayName}] ` +
-          `(ready=${result.readyCount}/` +
-          `${getConnectedPlayerIds().length})`,
-        );
+function handleReadyChange(ws, ready) {
+  const player = getPlayerBySocket(ws);
+  if (!player) {
+    logMissingReadyPlayer(ready);
+    return;
+  }
+  try {
+    const result = updatePlayerReady(player, ready);
+    logReadyChange(player, result, ready);
+    broadcastSessionState();
+    maybeStartAfterReady(ready);
+  } catch (error) {
+    logReadyError(player, error, ready);
+  }
+}
 
-        broadcastSessionState();
+function logMissingReadyPlayer(ready) {
+  const action = ready ? 'READY' : 'UNREADY';
+  console.log(`[SC] ${action} ignorado: socket sin jugador registrado.`);
+}
 
-        if (!TEST_MODE && Date.now() >= startTime.getTime()) {
-          startGameFromLobby('inicio desde LOBBY con barrera READY satisfecha');
-        }
-      } catch (error) {
-        console.log(
-            '[SC] READY rechazado para ' +
-          `[${player.playerId} | ${player.displayName}]: ` +
-                    error.message,
-        );
-      }
+function updatePlayerReady(player, ready) {
+  if (ready) return sessionCoordinator.markPlayerReady(player.playerId);
+  return sessionCoordinator.markPlayerNotReady(player.playerId);
+}
 
-      return;
-    }
+function logReadyChange(player, result, ready) {
+  const action = ready ? 'READY' : 'UNREADY';
+  console.log(
+      `[SC] ${action} [${player.playerId} | ${player.displayName}] ` +
+      `(ready=${result.readyCount}/${getConnectedPlayerIds().length})`,
+  );
+}
 
-    if (data.type === 'UNREADY') {
-      const player = getPlayerBySocket(ws);
+function maybeStartAfterReady(ready) {
+  if (!ready || TEST_MODE || Date.now() < startTime.getTime()) return;
+  startGameFromLobby('inicio desde LOBBY con barrera READY satisfecha');
+}
 
-      if (!player) {
-        console.log('[SC] UNREADY ignorado: socket sin jugador registrado.');
-        return;
-      }
+function logReadyError(player, error, ready) {
+  const action = ready ? 'READY' : 'UNREADY';
+  console.log(
+      `[SC] ${action} rechazado para ` +
+      `[${player.playerId} | ${player.displayName}]: ${error.message}`,
+  );
+}
 
-      try {
-        const result = sessionCoordinator.markPlayerNotReady(player.playerId);
+function handleAnswer(ws, data) {
+  const player = getPlayerBySocket(ws);
+  if (!player) {
+    console.log('[!] ANSWER ignorado: socket sin jugador registrado.');
+    return;
+  }
+  if (rejectInactiveAnswer(player)) return;
+  if (rejectIneligibleAnswer(player)) return;
+  const answerEvent = createAnswerEvent(player, data.answer);
+  logReceivedAnswer(answerEvent, player);
+  enqueueAnswerEvent(answerEvent);
+}
 
-        console.log(
-            `[SC] UNREADY [${player.playerId} | ${player.displayName}] ` +
-          `(ready=${result.readyCount}/` +
-          `${getConnectedPlayerIds().length})`,
-        );
+function rejectInactiveAnswer(player) {
+  const state = sessionCoordinator.getState();
+  if (state === SessionState.ROUND_ACTIVE && gameStarted && !gameFinished) {
+    return false;
+  }
+  console.log(
+      '[SCx] ANSWER rechazado para ' +
+      `[${player.playerId} | ${player.displayName}]: ` +
+      `sesión no activa para respuestas (state=${state}).`,
+  );
+  sendInactiveAnswerRejection(player, state);
+  return true;
+}
 
-        broadcastSessionState();
-      } catch (error) {
-        console.log(
-            '[SC] UNREADY rechazado para ' +
-          `[${player.playerId} | ${player.displayName}]: ` +
-                    error.message,
-        );
-      }
-
-      return;
-    }
-
-    if (data.type === 'ANSWER') {
-      const player = getPlayerBySocket(ws);
-      if (!player) {
-        console.log('[!] ANSWER ignorado: socket sin jugador registrado.');
-        return;
-      }
-
-      const sessionState = sessionCoordinator.getState();
-      if (sessionState !== SessionState.ROUND_ACTIVE ||
-          !gameStarted || gameFinished) {
-        console.log(
-            '[SCx] ANSWER rechazado para ' +
-          `[${player.playerId} | ${player.displayName}]: ` +
-                    `sesión no activa para respuestas (state=${sessionState}).`,
-        );
-
-        sendToPlayer(player.playerId, {
-          type: 'ANSWER_REJECTED',
-          reason: 'SESSION_NOT_ACTIVE',
-          sessionState,
-        });
-        return;
-      }
-
-      if (!isPlayerEligibleForCurrentRound(player)) {
-        console.log(
-            '[SC] ANSWER rechazado para ' +
-          `[${player.playerId} | ${player.displayName}]: ` +
-                    `no elegible para ronda ${getCurrentRoundId()}; ` +
-                    `elegible desde ronda ${player.eligibleFromRoundId}.`,
-        );
-
-        sendToPlayer(player.playerId, {
-          type: 'ANSWER_REJECTED',
-          reason: 'NOT_ELIGIBLE_CURRENT_ROUND',
-          currentRound: getCurrentRoundId(),
-          eligibleFromRound: player.eligibleFromRoundId,
-        });
-        return;
-      }
-
-      const answerEvent = createAnswerEvent(player, data.answer);
-      console.log(
-          `[→] ANSWER #${String(answerEvent.sequence).padStart(6, '0')} ` +
-        `recibido de [${player.playerId} | ${player.displayName}] ` +
-        `en ronda ${answerEvent.roundId}.`,
-      );
-      enqueueAnswerEvent(answerEvent);
-    }
+function sendInactiveAnswerRejection(player, sessionState) {
+  sendToPlayer(player.playerId, {
+    type: 'ANSWER_REJECTED',
+    reason: 'SESSION_NOT_ACTIVE',
+    sessionState,
   });
+}
 
-  ws.on('close', () => {
-    if (username) {
-      const player = markPlayerDisconnected(ws);
-      if (player) {
-        sessionCoordinator.removePlayerReadiness(player.playerId);
-        console.log(
-            '[-] Usuario desconectado: ' +
-          `[${player.playerId} | ${player.displayName}]`,
-        );
-      } else {
-        console.log(`[-] Usuario desconectado: ${username}`);
-      }
-      broadcastLeaderboard();
-      broadcastSessionState();
+function rejectIneligibleAnswer(player) {
+  if (isPlayerEligibleForCurrentRound(player)) return false;
+  console.log(
+      '[SC] ANSWER rechazado para ' +
+      `[${player.playerId} | ${player.displayName}]: ` +
+      `no elegible para ronda ${getCurrentRoundId()}; ` +
+      `elegible desde ronda ${player.eligibleFromRoundId}.`,
+  );
+  sendIneligibleAnswerRejection(player);
+  return true;
+}
 
-      if (
-        !TEST_MODE &&
-                sessionCoordinator.getState() === SessionState.LOBBY &&
-                Date.now() >= startTime.getTime()
-      ) {
-        startGameFromLobby(
-            'inicio desde LOBBY tras desconexión que satisface barrera READY',
-        );
-      }
-    }
+function sendIneligibleAnswerRejection(player) {
+  sendToPlayer(player.playerId, {
+    type: 'ANSWER_REJECTED',
+    reason: 'NOT_ELIGIBLE_CURRENT_ROUND',
+    currentRound: getCurrentRoundId(),
+    eligibleFromRound: player.eligibleFromRoundId,
   });
-});
+}
+
+function logReceivedAnswer(answerEvent, player) {
+  const sequence = String(answerEvent.sequence)
+      .padStart(SEQUENCE_PAD_WIDTH, '0');
+  console.log(
+      `[→] ANSWER #${sequence} recibido de ` +
+      `[${player.playerId} | ${player.displayName}] ` +
+      `en ronda ${answerEvent.roundId}.`,
+  );
+}
+
+function handleSocketClose(ws, context) {
+  if (!context.username) return;
+  const player = markPlayerDisconnected(ws);
+  if (player) disconnectRegisteredPlayer(player);
+  else console.log(`[-] Usuario desconectado: ${context.username}`);
+  broadcastLeaderboard();
+  broadcastSessionState();
+  maybeStartAfterDisconnect();
+}
+
+function disconnectRegisteredPlayer(player) {
+  sessionCoordinator.removePlayerReadiness(player.playerId);
+  console.log(
+      '[-] Usuario desconectado: ' +
+      `[${player.playerId} | ${player.displayName}]`,
+  );
+}
+
+function maybeStartAfterDisconnect() {
+  const lobby = sessionCoordinator.getState() === SessionState.LOBBY;
+  if (TEST_MODE || !lobby || Date.now() < startTime.getTime()) return;
+  startGameFromLobby(
+      'inicio desde LOBBY tras desconexión que satisface barrera READY',
+  );
+}
 
 /**
  * Difunde el mensaje a todos los sockets abiertos, aun sin JOIN registrado.
@@ -1107,32 +1206,28 @@ function broadcastLeaderboard() {
  */
 function setupConsoleCommands() {
   const consoleRl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    prompt: '',
+    input: process.stdin, output: process.stdout, prompt: '',
   });
+  promptOperator(consoleRl);
+}
 
-  /**
-   * Lee un comando y vuelve a solicitar otro cuando termina su callback.
-   */
-  function promptUser() {
-    const operatorQuestion = 'comando operador ' +
-      '[x=avanzar ronda, r=restart tras GAME_OVER]: ';
-    consoleRl.question(operatorQuestion, (answer) => {
-      const command = answer.trim().toLowerCase();
+function promptOperator(consoleRl) {
+  const question = 'comando operador ' +
+    '[x=avanzar ronda, r=restart tras GAME_OVER]: ';
+  consoleRl.question(question, (answer) => {
+    handleOperatorCommand(answer);
+    promptOperator(consoleRl);
+  });
+}
 
-      if (command === 'r' || command === 'restart') {
-        restartGame();
-      } else {
-        console.log('[*] Iniciando cuenta regresiva de 5 segundos...');
-        forceNextRound();
-      }
-
-      promptUser();
-    });
+function handleOperatorCommand(answer) {
+  const command = answer.trim().toLowerCase();
+  if (command === 'r' || command === 'restart') {
+    restartGame();
+    return;
   }
-
-  promptUser();
+  console.log('[*] Iniciando cuenta regresiva de 5 segundos...');
+  forceNextRound();
 }
 
 let transitionTimeout = null;
@@ -1146,53 +1241,63 @@ let transitionTimeout = null;
  * @return {boolean} True si se reinició; false si el estado no lo permite.
  */
 function restartGame() {
-  if (sessionCoordinator.getState() !== SessionState.GAME_OVER) {
-    console.log(
-        '[SCx] RESTART rechazado: ' +
-      `estado actual=${sessionCoordinator.getState()}. ` +
-            'RESTART solo es válido desde GAME_OVER.',
-    );
-    return false;
-  }
-
-  if (transitionTimeout) {
-    clearTimeout(transitionTimeout);
-    transitionTimeout = null;
-  }
-
+  if (!canRestartGame()) return false;
+  clearTransitionTimeout();
   const restart = sessionCoordinator.restartSession();
+  resetAudioForRestart(restart);
+  resetGameRuntimeState();
+  logGameRestart(restart);
+  broadcastGameReset(restart);
+  return true;
+}
+
+function canRestartGame() {
+  if (sessionCoordinator.getState() === SessionState.GAME_OVER) return true;
+  console.log(
+      '[SCx] RESTART rechazado: ' +
+      `estado actual=${sessionCoordinator.getState()}. ` +
+      'RESTART solo es válido desde GAME_OVER.',
+  );
+  return false;
+}
+
+function clearTransitionTimeout() {
+  if (!transitionTimeout) return;
+  clearTimeout(transitionTimeout);
+  transitionTimeout = null;
+}
+
+function resetAudioForRestart(restart) {
   audioPreparationManager?.handleGameRestart(restart);
   roundAudioRegistry.clear();
+}
 
+function resetGameRuntimeState() {
   gameStarted = false;
   gameFinished = false;
   currentRound = 0;
   currentSongIndex = 0;
   lastReadyBarrierStatus = null;
-
   resetPlayersForNewGame();
   gameCoordinator.resetGameState();
-
-  // La hora original ya quedó atrás. Desde este punto el nuevo inicio
-  // depende de que los jugadores vuelvan a atravesar la barrera READY.
   startTime = new Date();
+}
 
+function logGameRestart(restart) {
   console.log(
       '[SCv] GAME_OVER -> LOBBY por RESTART ' +
-        `(gameId=${restart.gameId}, previousGameId=${restart.previousGameId}).`,
+      `(gameId=${restart.gameId}, previousGameId=${restart.previousGameId}).`,
   );
+}
 
+function broadcastGameReset(restart) {
   broadcast({
-    type: 'GAME_RESET',
-    gameId: restart.gameId,
-    sessionState: SessionState.LOBBY,
-    maxRounds,
+    type: 'GAME_RESET', gameId: restart.gameId,
+    sessionState: SessionState.LOBBY, maxRounds,
     titles: playlist.map((song) => song.title),
   });
   broadcastLeaderboard();
   broadcastSessionState();
-
-  return true;
 }
 
 /**
@@ -1201,81 +1306,65 @@ function restartGame() {
  * Luego finaliza por límite de rondas o playlist, o abre la siguiente ronda.
  */
 function forceNextRound() {
+  if (!canForceNextRound()) return;
+  transitionSessionTo(
+      SessionState.BETWEEN_ROUNDS, 'avance forzado por operador',
+  );
+  gameStarted = false;
+  clearTransitionTimeout();
+  console.log('[*] Ronda adelantada por el operador del servidor.');
+  broadcastForcedRoundWinner();
+  transitionTimeout = setTimeout(
+      completeForcedAdvance, FORCE_NEXT_DELAY_SECONDS * MILLISECONDS_PER_SECOND,
+  );
+}
+
+function canForceNextRound() {
   if (!gameStarted && !gameFinished) {
     console.log('[!] La partida aún no comenzó.');
-    return;
+    return false;
   }
   if (gameFinished) {
     console.log('[!] La partida ya finalizó.');
-    return;
+    return false;
   }
+  return true;
+}
 
-  transitionSessionTo(
-      SessionState.BETWEEN_ROUNDS,
-      'avance forzado por operador',
-  );
-
-  // Forzar fin de ronda actual
-  gameStarted = false;
-  if (transitionTimeout) {
-    clearTimeout(transitionTimeout);
-  }
-
-  console.log('[*] Ronda adelantada por el operador del servidor.');
-
+function broadcastForcedRoundWinner() {
   broadcast({
     type: 'ROUND_WINNER',
     winner: {
-      playerId: null,
-      displayName: 'Nadie (Operador adelantó)',
-      score: 0,
+      playerId: null, displayName: 'Nadie (Operador adelantó)', score: 0,
     },
     songTitle: playlist[currentSongIndex].title,
-    points: 0,
-    delay: 5, // Forzar 5 segundos
+    points: 0, delay: FORCE_NEXT_DELAY_SECONDS,
   });
+}
 
-  // Programar la siguiente ronda en 5 segundos
-  transitionTimeout = setTimeout(() => {
-    currentRound++;
-    if (currentRound >= maxRounds || currentRound >= playlist.length) {
-      transitionSessionTo(
-          SessionState.GAME_OVER,
-          'fin de partida tras avance forzado',
-      );
-      gameFinished = true;
-      const finalWinner = getFinalWinner();
-      const winnerLabel = finalWinner ?
-        `[${finalWinner.playerId} | ${finalWinner.displayName}]` :
-        'Nadie';
-      broadcast({
-        type: 'GAME_OVER',
-        winner: buildWinnerView(finalWinner),
-        leaderboard: buildLeaderboardView(),
-      });
-      broadcastSessionState();
-      console.log(`[*] ¡Partida finalizada! Ganador: ${winnerLabel}`);
-    } else {
-      currentSongIndex = (currentSongIndex + 1) % playlist.length;
+function completeForcedAdvance() {
+  currentRound += 1;
+  if (isGameLimitReached()) {
+    finishCurrentGame('fin de partida tras avance forzado');
+    return;
+  }
+  currentSongIndex = (currentSongIndex + 1) % playlist.length;
+  openForcedRound();
+  logCurrentRoundStart();
+  broadcastAndPrefetchCurrentRound();
+  broadcastLeaderboard();
+}
 
-      transitionSessionTo(
-          SessionState.ROUND_ACTIVE,
-          'inicio de siguiente ronda tras avance forzado',
-      );
+function openForcedRound() {
+  transitionSessionTo(
+      SessionState.ROUND_ACTIVE,
+      'inicio de siguiente ronda tras avance forzado',
+  );
+  activateCurrentRound();
+}
 
-      gameStarted = true;
-      resetAllPlayerAttempts();
-      gameCoordinator.beginRound(currentRound + 1);
-      const nextSong = playlist[currentSongIndex];
-      console.log(
-          `\n[♫] Comienza la ronda nro ${currentRound + 1} de ${maxRounds}: ` +
-        `La canción es "${nextSong.title}"`,
-      );
-
-      broadcastAndPrefetchCurrentRound();
-      broadcastLeaderboard();
-    }
-  }, 5000);
+function isGameLimitReached() {
+  return currentRound >= maxRounds || currentRound >= playlist.length;
 }
 
 /**
@@ -1285,48 +1374,45 @@ function forceNextRound() {
  * El reinicio posterior utiliza los handlers READY y desconexión.
  */
 function startServerAndGameLoop() {
-  if (!TEST_MODE) {
-    setupConsoleCommands();
-  }
+  if (!TEST_MODE) setupConsoleCommands();
+  server.listen(SERVER_PORT, logServerStarted);
+  const interval = TEST_MODE ? TEST_LOOP_INTERVAL_MS : NORMAL_LOOP_INTERVAL_MS;
+  const timer = setInterval(() => checkScheduledStart(timer), interval);
+}
 
-  server.listen(SERVER_PORT, () => {
-    console.log(`[*] Servidor web corriendo en http://localhost:${SERVER_PORT}`);
-    console.log(
-        '[*] Esperando la hora de inicio ' +
+function logServerStarted() {
+  console.log(`[*] Servidor web corriendo en http://localhost:${SERVER_PORT}`);
+  console.log(
+      '[*] Esperando la hora de inicio ' +
       `(${startTime.toLocaleTimeString()}) para disparar la primera ronda...`,
-    );
-  });
+  );
+}
 
-  const timer = setInterval(() => {
-    const now = new Date();
+function checkScheduledStart(timer) {
+  if (gameStarted || gameFinished || new Date() < startTime) return;
+  if (!canPassReadyBarrier()) return;
+  startGameFromLobby(scheduledStartReason());
+  clearInterval(timer);
+}
 
-    if (!gameStarted && !gameFinished && now >= startTime) {
-      const connectedPlayerIds = getConnectedPlayerIds();
+function canPassReadyBarrier() {
+  if (TEST_MODE) return true;
+  const connectedIds = getConnectedPlayerIds();
+  if (sessionCoordinator.canStart(connectedIds)) return true;
+  logPendingReadyBarrier(connectedIds.length);
+  return false;
+}
 
-      if (!TEST_MODE && !sessionCoordinator.canStart(connectedPlayerIds)) {
-        const readyBarrierStatus =
-          `${sessionCoordinator.getReadyCount()}/${connectedPlayerIds.length}`;
+function logPendingReadyBarrier(connectedCount) {
+  const status = `${sessionCoordinator.getReadyCount()}/${connectedCount}`;
+  if (lastReadyBarrierStatus === status) return;
+  console.log(`[SC] START pendiente: READY ${status}.`);
+  lastReadyBarrierStatus = status;
+}
 
-        if (lastReadyBarrierStatus !== readyBarrierStatus) {
-          console.log(
-              `[SC] START pendiente: READY ${readyBarrierStatus}.`,
-          );
-
-          lastReadyBarrierStatus = readyBarrierStatus;
-        }
-
-        return;
-      }
-
-      startGameFromLobby(
-        TEST_MODE ?
-          'inicio automatico de prueba ALT-02' :
-          'inicio programado con barrera READY satisfecha',
-      );
-
-      clearInterval(timer);
-    }
-  }, TEST_MODE ? 10 : 1000);
+function scheduledStartReason() {
+  if (TEST_MODE) return 'inicio automatico de prueba ALT-02';
+  return 'inicio programado con barrera READY satisfecha';
 }
 
 /**
@@ -1335,14 +1421,22 @@ function startServerAndGameLoop() {
  * servidor con demora y rondas configurables. No proporciona audio real.
  */
 function startDeterministicTestMode() {
-  // Una entrada por ronda evita que la condición de fin dependa del tamaño
-  // de una playlist externa. Todas comparten la misma respuesta conocida.
-  playlist = Array.from({length: TEST_ROUNDS}, (_, index) => ({
+  playlist = buildDeterministicPlaylist();
+  resetDeterministicState();
+  rl.close();
+  logDeterministicMode();
+  startServerAndGameLoop();
+}
+
+function buildDeterministicPlaylist() {
+  return Array.from({length: TEST_ROUNDS}, (_, index) => ({
     title: TEST_SONG_TITLE,
     artist: 'ALT-02 Test Harness',
     preview: `https://example.invalid/alt02-test-${index + 1}.mp3`,
   }));
+}
 
+function resetDeterministicState() {
   currentSongIndex = 0;
   currentRound = 0;
   maxRounds = TEST_ROUNDS;
@@ -1350,28 +1444,27 @@ function startDeterministicTestMode() {
   gameStarted = false;
   gameFinished = false;
   startTime = new Date(Date.now() + TEST_START_DELAY_MS);
+}
 
-  // readline se crea al iniciar el proceso para el modo normal. En modo test
-  // no se usa, por lo que se cierra para que no interfiera con el harness.
-  rl.close();
-
+function logDeterministicMode() {
   console.log(
       `[TEST] Modo ALT-02 activo: rounds=${TEST_ROUNDS}, ` +
-    `answer="${TEST_SONG_TITLE}", port=${SERVER_PORT}.`,
+      `answer="${TEST_SONG_TITLE}", port=${SERVER_PORT}.`,
   );
   console.log(
       `[TEST] Inicio automático en ${TEST_START_DELAY_MS} ms; ` +
-    'iTunes y configuración interactiva deshabilitados.',
+      'iTunes y configuración interactiva deshabilitados.',
   );
-  if (TEST_QUEUE_DRAIN_DELAY_MS > 0) {
-    console.log(
-        '[TEST] Drenaje de AnswerQueue demorado ' +
+  logTestQueueDelay();
+}
+
+function logTestQueueDelay() {
+  if (TEST_QUEUE_DRAIN_DELAY_MS <= 0) return;
+  console.log(
+      '[TEST] Drenaje de AnswerQueue demorado ' +
       `${TEST_QUEUE_DRAIN_DELAY_MS} ms para ejercitar ` +
       'colisiones controladas.',
-    );
-  }
-
-  startServerAndGameLoop();
+  );
 }
 
 if (TEST_MODE) {

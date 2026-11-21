@@ -72,23 +72,26 @@ function createControlledPool() {
   const pending = new Map();
   return {
     jobs,
-    submit(job) {
-      jobs.push(job);
-      return createPendingPromise(pending, job);
-    },
-    resolveJob(jobId, value = null) {
-      const entry = pending.get(jobId);
-      settlePending(
-          pending,
-          jobId,
-          'resolve',
-          value ?? createSuccessResult(entry.job),
-      );
-    },
+    submit: (job) => submitControlledJob(jobs, pending, job),
+    resolveJob: (jobId, value = null) =>
+      resolveControlledJob(pending, jobId, value),
     rejectJob: (jobId, error = new Error('fallo simulado')) =>
       settlePending(pending, jobId, 'reject', error),
   };
 }
+
+function submitControlledJob(jobs, pending, job) {
+  jobs.push(job);
+  return createPendingPromise(pending, job);
+}
+
+function resolveControlledJob(pending, jobId, value) {
+  const entry = pending.get(jobId);
+  settlePending(
+      pending, jobId, 'resolve', value ?? createSuccessResult(entry.job),
+  );
+}
+
 
 function createWindowParams(playlist, overrides = {}) {
   return {

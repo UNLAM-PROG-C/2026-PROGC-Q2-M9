@@ -1,12 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-
 import {AudioMode} from '../server/audio/model/audio-mode.js';
 import {PreparedRound} from '../server/audio/model/prepared-round.js';
-import {PreparedRoundBuffer} from
-  '../server/audio/prepared-round-buffer.js';
-import {RoundAudioResolver} from
-  '../server/audio/round-audio-resolver.js';
+import {PreparedRoundBuffer} from '../server/audio/prepared-round-buffer.js';
+import {RoundAudioResolver} from '../server/audio/round-audio-resolver.js';
 
 const SONG = {
   title: 'Test Song',
@@ -20,84 +17,68 @@ function createResolver(buffer, logs = []) {
   });
 }
 
-test('C19-I01: consume PreparedRound disponible', () => {
-  const buffer = new PreparedRoundBuffer();
-  const resource = 'https://example.invalid/reverse.wav';
+function addPrepared(buffer, options) {
+  buffer.tryAdd(new PreparedRound({song: SONG, ...options}));
+}
 
-  buffer.tryAdd(new PreparedRound({
-    gameId: 5,
-    roundId: 3,
-    mode: AudioMode.REVERSE,
-    song: SONG,
-    resource,
-  }));
-
-  const resolved = createResolver(buffer).resolve({
-    gameId: 5,
-    roundId: 3,
-    playlistSong: SONG,
+function resolveRound(buffer, gameId, roundId) {
+  return createResolver(buffer).resolve({
+    gameId, roundId, playlistSong: SONG,
   });
+}
 
+function assertPreparedResolution(resolved, resource) {
   assert.equal(resolved.prepared, true);
   assert.equal(resolved.mode, AudioMode.REVERSE);
   assert.equal(resolved.resource, resource);
   assert.equal(resolved.source, 'PREPARED_ROUND');
-  assert.equal(buffer.size, 0);
-});
+}
 
-test('C19-I02: ausencia produce fallback NORMAL inmediato', () => {
+function testPreparedRoundIsConsumed() {
   const buffer = new PreparedRoundBuffer();
-
-  const resolved = createResolver(buffer).resolve({
-    gameId: 5,
-    roundId: 3,
-    playlistSong: SONG,
+  const resource = 'https://example.invalid/reverse.wav';
+  addPrepared(buffer, {
+    gameId: 5, roundId: 3, mode: AudioMode.REVERSE, resource,
   });
+  assertPreparedResolution(resolveRound(buffer, 5, 3), resource);
+  assert.equal(buffer.size, 0);
+}
 
+test('C19-I01: consume PreparedRound disponible', testPreparedRoundIsConsumed);
+
+function testFallback() {
+  const buffer = new PreparedRoundBuffer();
+  const resolved = resolveRound(buffer, 5, 3);
   assert.equal(resolved.prepared, false);
   assert.equal(resolved.mode, AudioMode.NORMAL);
   assert.equal(resolved.resource, SONG.preview);
   assert.equal(resolved.source, 'FALLBACK_ORIGINAL');
-});
+}
 
-test('C19-I03: no consume otra ronda del mismo game', () => {
+test('C19-I02: ausencia produce fallback NORMAL inmediato', testFallback);
+
+function testOtherRoundIsPreserved() {
   const buffer = new PreparedRoundBuffer();
-
-  buffer.tryAdd({
-    gameId: 1,
-    roundId: 3,
-    mode: AudioMode.LOW_PASS,
-    song: SONG,
+  addPrepared(buffer, {
+    gameId: 1, roundId: 3, mode: AudioMode.LOW_PASS,
     resource: 'https://example.invalid/round-3.wav',
   });
-
-  const resolved = createResolver(buffer).resolve({
-    gameId: 1,
-    roundId: 2,
-    playlistSong: SONG,
-  });
-
-  assert.equal(resolved.prepared, false);
+  assert.equal(resolveRound(buffer, 1, 2).prepared, false);
   assert.equal(buffer.has(1, 3), true);
-});
+}
 
-test('C19-I04: no consume PreparedRound de otro game', () => {
+test('C19-I03: no consume otra ronda del mismo game',
+    testOtherRoundIsPreserved);
+
+function testOtherGameIsPreserved() {
   const buffer = new PreparedRoundBuffer();
-
-  buffer.tryAdd({
-    gameId: 5,
-    roundId: 2,
-    mode: AudioMode.REVERSE,
-    song: SONG,
+  addPrepared(buffer, {
+    gameId: 5, roundId: 2, mode: AudioMode.REVERSE,
     resource: 'https://example.invalid/game-5.wav',
   });
-
-  const resolved = createResolver(buffer).resolve({
-    gameId: 6,
-    roundId: 2,
-    playlistSong: SONG,
-  });
-
-  assert.equal(resolved.prepared, false);
+  assert.equal(resolveRound(buffer, 6, 2).prepared, false);
   assert.equal(buffer.has(5, 2), true);
-});
+}
+
+test('C19-I04: no consume PreparedRound de otro game',
+    testOtherGameIsPreserved);

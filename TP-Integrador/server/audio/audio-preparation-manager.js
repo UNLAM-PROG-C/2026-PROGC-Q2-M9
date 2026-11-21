@@ -282,27 +282,34 @@ class AudioPreparationManager {
   publishPreparedRound(result) {
     const key = buildRoundKey(result.gameId, result.roundId);
     const song = this.roundSongs.get(key);
-
-    if (!this.preparedRoundBuffer ||
-      result.ok !== true ||
-      result.resource === null ||
-      result.resource === undefined ||
-      song === undefined) {
+    if (!this.canPublishResult(result, song)) {
       this.roundSongs.delete(key);
       return null;
     }
+    const preparedRound = this.buildPreparedRound(result, song);
+    const publication = this.preparedRoundBuffer.tryAdd(preparedRound);
+    this.roundSongs.delete(key);
+    return publication;
+  }
 
-    const preparedRound = new PreparedRound({
+  /** @return {boolean} True si el resultado puede publicarse. */
+  canPublishResult(result, song) {
+    return Boolean(this.preparedRoundBuffer) &&
+      result.ok === true &&
+      result.resource !== null &&
+      result.resource !== undefined &&
+      song !== undefined;
+  }
+
+  /** @return {!PreparedRound} Ronda preparada a publicar. */
+  buildPreparedRound(result, song) {
+    return new PreparedRound({
       gameId: result.gameId,
       roundId: result.roundId,
       mode: result.mode,
       song,
       resource: result.resource,
     });
-
-    const publication = this.preparedRoundBuffer.tryAdd(preparedRound);
-    this.roundSongs.delete(key);
-    return publication;
   }
 
   /**
@@ -311,20 +318,16 @@ class AudioPreparationManager {
    * @return {!Object} Clasificación para la posterior publicación.
    */
   handleAudioResult(result) {
-    const stale = this.isStaleResult(result);
-    const key = buildRoundKey(result.gameId, result.roundId);
-
-    if (stale) {
-      this.roundSongs.delete(key);
-      return {
-        accepted: false,
-        reason: 'STALE_GAME',
-        result,
-      };
-    }
-
+    if (this.isStaleResult(result)) return this.rejectStaleResult(result);
     this.publishPreparedRound(result);
     return {accepted: true, result};
+  }
+
+  /** @return {!Object} Clasificación de un resultado obsoleto. */
+  rejectStaleResult(result) {
+    const key = buildRoundKey(result.gameId, result.roundId);
+    this.roundSongs.delete(key);
+    return {accepted: false, reason: 'STALE_GAME', result};
   }
 
   /**
@@ -428,20 +431,16 @@ class AudioPreparationManager {
    * @param {!Promise<*>} submittedPromise Promesa devuelta por el pool.
    */
   observePreparationResult(roundKey, submittedPromise) {
-    if (!this.roundSongs.has(roundKey)) {
-      return;
-    }
+    if (!this.roundSongs.has(roundKey)) return;
+    submittedPromise
+        .then((result) => this.handleAudioResult(result))
+        .catch((error) => this.handleObservationError(roundKey, error));
+  }
 
-    const observation = submittedPromise.then((result) => {
-      this.handleAudioResult(result);
-    });
-
-    observation.catch((error) => {
-      this.roundSongs.delete(roundKey);
-      if (this.log) {
-        this.log(`[AUDIO_RESULT_ERROR] ${error.message}`);
-      }
-    });
+  /** Registra un error observado fuera del resultPromise público. */
+  handleObservationError(roundKey, error) {
+    this.roundSongs.delete(roundKey);
+    if (this.log) this.log(`[AUDIO_RESULT_ERROR] ${error.message}`);
   }
 
 
@@ -499,27 +498,29 @@ class AudioPreparationManager {
    */
   dispatchJob(roundKey, job) {
     this.inFlightRoundKeys.add(roundKey);
-    let submitted;
+    const submittedPromise = this.submitJob(roundKey, job);
+    this.observePreparationResult(roundKey, submittedPromise);
+    const resultPromise = this.trackJobCompletion(roundKey, submittedPromise);
+    resultPromise.catch(() => this.roundSongs.delete(roundKey));
+    return {accepted: true, job, resultPromise};
+  }
+
+  /** @return {!Promise<*>} Promesa normalizada del pool. */
+  submitJob(roundKey, job) {
     try {
-      submitted = this.workerPool.submit(job);
+      return Promise.resolve(this.workerPool.submit(job));
     } catch (error) {
       this.inFlightRoundKeys.delete(roundKey);
       this.roundSongs.delete(roundKey);
       throw error;
     }
-    const submittedPromise = Promise.resolve(submitted);
+  }
 
-    this.observePreparationResult(roundKey, submittedPromise);
-
-    const resultPromise = submittedPromise.finally(() => {
+  /** @return {!Promise<*>} Promesa que libera IN_FLIGHT al finalizar. */
+  trackJobCompletion(roundKey, submittedPromise) {
+    return submittedPromise.finally(() => {
       this.inFlightRoundKeys.delete(roundKey);
     });
-
-    resultPromise.catch(() => {
-      this.roundSongs.delete(roundKey);
-    });
-
-    return {accepted: true, job, resultPromise};
   }
 
   /**

@@ -1,7 +1,4 @@
-/**
- * @fileoverview Prueba concurrente de pool, cola y buffer (V4-C24).
- */
-
+/** @fileoverview Prueba concurrente de pool, cola y buffer (V4-C24). */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {AudioWorkerPool} from '../../server/audio/audio-worker-pool.js';
@@ -9,107 +6,142 @@ import {PreparedRoundBuffer} from '../../server/audio/prepared-round-buffer.js';
 import {AudioMode} from '../../server/audio/model/audio-mode.js';
 import {DeterministicCpuWorker} from './concurrency-harness.js';
 
+const POOL_SIZE = 3;
+const BUFFER_CAPACITY = 3;
+const GAME_ID = 1;
+const SPECS = [
+  [1, AudioMode.NORMAL, 90, 80000],
+  [2, AudioMode.REVERSE, 20, 20000],
+  [3, AudioMode.LOW_PASS, 50, 40000],
+  [4, AudioMode.NORMAL, 30, 30000],
+  [5, AudioMode.REVERSE, 15, 15000],
+  [6, AudioMode.LOW_PASS, 25, 25000],
+];
+
 function buildScenarioJobs() {
-  // Job 1 tarda más (90ms) para que Job 2 (20ms) cierre antes.
-  const specs = [
-    {roundId: 1, mode: AudioMode.NORMAL, delayMs: 90, cpuIterations: 80000},
-    {roundId: 2, mode: AudioMode.REVERSE, delayMs: 20, cpuIterations: 20000},
-    {roundId: 3, mode: AudioMode.LOW_PASS, delayMs: 50, cpuIterations: 40000},
-    {roundId: 4, mode: AudioMode.NORMAL, delayMs: 30, cpuIterations: 30000},
-    {roundId: 5, mode: AudioMode.REVERSE, delayMs: 15, cpuIterations: 15000},
-    {roundId: 6, mode: AudioMode.LOW_PASS, delayMs: 25, cpuIterations: 25000},
-  ];
-  return specs.map((spec, idx) => ({
-    jobId: `c24-job-${idx + 1}`,
-    gameId: 1,
-    roundId: spec.roundId,
-    mode: spec.mode,
-    source: {delayMs: spec.delayMs, cpuIterations: spec.cpuIterations},
+  return SPECS.map(([roundId, mode, delayMs, cpuIterations], index) => ({
+    jobId: `c24-job-${index + 1}`, gameId: GAME_ID, roundId, mode,
+    source: {delayMs, cpuIterations},
   }));
 }
 
 function createTracker(dispatchOrder, completionOrder, logs, state) {
   return {
-    onStart(threadId, job, startMs) {
-      state.activeWorkers += 1;
-      state.peakActive = Math.max(state.peakActive, state.activeWorkers);
-      dispatchOrder.push(job.jobId);
-      logs.push(
-          `[START] t=${startMs} tid=${threadId} ` +
-          `job=${job.jobId} round=${job.roundId} active=${state.activeWorkers}`,
-      );
-    },
-    onFinish(threadId, job, startMs, endMs) {
-      state.activeWorkers -= 1;
-      completionOrder.push(job.jobId);
-      logs.push(
-          `[END]   t=${endMs} (+${endMs - startMs}ms) ` +
-          `tid=${threadId} job=${job.jobId} round=${job.roundId}`,
-      );
-    },
+    onStart: (threadId, job, startMs) =>
+      trackStart(dispatchOrder, logs, state, threadId, job, startMs),
+    onFinish: (threadId, job, startMs, endMs) =>
+      trackFinish(completionOrder, logs, state, threadId, job, startMs, endMs),
   };
 }
 
-function storeInBoundedBuffer(buffer, res, state) {
-  if (buffer.isFull()) {
-    const oldestRoundId = Math.min(
-        ...[...buffer.rounds.values()].map((r) => r.roundId),
-    );
-    buffer.consume(1, oldestRoundId);
-  }
-  const addRes = buffer.tryAdd({
-    gameId: res.gameId,
-    roundId: res.roundId,
-    mode: res.mode,
-    song: {
-      title: `Song ${res.roundId}`,
-      preview: `http://local/r${res.roundId}.mp3`,
-    },
-    resource: res.resource,
-  });
-  assert.equal(addRes.accepted, true);
-  state.maxBufferSize = Math.max(state.maxBufferSize, buffer.size);
-  assert.ok(buffer.size <= 3, `Buffer excedió 3: ${buffer.size}`);
+function trackStart(order, logs, state, threadId, job, startMs) {
+  state.activeWorkers += 1;
+  state.peakActive = Math.max(state.peakActive, state.activeWorkers);
+  order.push(job.jobId);
+  logs.push(
+      `[START] t=${startMs} tid=${threadId} ` +
+      `job=${job.jobId} round=${job.roundId} active=${state.activeWorkers}`,
+  );
 }
 
-test('V4-C24: concurrencia de pool, cola FIFO y buffer acotado', async () => {
-  const poolSize = 3;
-  const buffer = new PreparedRoundBuffer({capacity: 3});
+function trackFinish(order, logs, state, threadId, job, startMs, endMs) {
+  state.activeWorkers -= 1;
+  order.push(job.jobId);
+  logs.push(
+      `[END]   t=${endMs} (+${endMs - startMs}ms) ` +
+      `tid=${threadId} job=${job.jobId} round=${job.roundId}`,
+  );
+}
+
+function storeInBoundedBuffer(buffer, result, state) {
+  if (buffer.isFull()) consumeOldest(buffer);
+  const addResult = buffer.tryAdd(buildPreparedRound(result));
+  assert.equal(addResult.accepted, true);
+  state.maxBufferSize = Math.max(state.maxBufferSize, buffer.size);
+  assert.ok(buffer.size <= BUFFER_CAPACITY);
+}
+
+function consumeOldest(buffer) {
+  const ids = [...buffer.rounds.values()].map((round) => round.roundId);
+  buffer.consume(GAME_ID, Math.min(...ids));
+}
+
+function buildPreparedRound(result) {
+  return {
+    gameId: result.gameId, roundId: result.roundId, mode: result.mode,
+    song: {title: `Song ${result.roundId}`,
+      preview: `http://local/r${result.roundId}.mp3`},
+    resource: result.resource,
+  };
+}
+
+function createScenario() {
   const dispatchOrder = [];
   const completionOrder = [];
   const logs = [];
   const state = {activeWorkers: 0, peakActive: 0, maxBufferSize: 0};
-  let nextThreadId = 1;
   const tracker = createTracker(dispatchOrder, completionOrder, logs, state);
-  const pool = new AudioWorkerPool({
-    size: poolSize,
+  return {dispatchOrder, completionOrder, logs, state, tracker};
+}
+
+function createPool(tracker) {
+  let nextThreadId = 1;
+  return new AudioWorkerPool({
+    size: POOL_SIZE,
     createWorker: () => new DeterministicCpuWorker(nextThreadId++, tracker),
   });
-  const jobs = buildScenarioJobs();
-  const results = await Promise.all(
-      jobs.map(async (job) => {
-        const res = await pool.submit(job);
-        storeInBoundedBuffer(buffer, res, state);
-        return res;
-      }),
-  );
-  await pool.terminate();
+}
 
+async function runJobs(pool, buffer, jobs, state) {
+  return Promise.all(jobs.map(async (job) => {
+    const result = await pool.submit(job);
+    storeInBoundedBuffer(buffer, result, state);
+    return result;
+  }));
+}
+
+function logEvidence(scenario) {
   console.log('\n=== EVIDENCIA V4-C24 ===');
-  logs.forEach((line) => console.log(line));
-  console.log(`peakActive=${state.peakActive}, max=${state.maxBufferSize}`);
-  console.log(`dispatch=${dispatchOrder.join(' -> ')}`);
-  console.log(`completion=${completionOrder.join(' -> ')}\n`);
+  scenario.logs.forEach((line) => console.log(line));
+  const peak = scenario.state.peakActive;
+  console.log(`peakActive=${peak}, max=${BUFFER_CAPACITY}`);
+  console.log(`dispatch=${scenario.dispatchOrder.join(' -> ')}`);
+  console.log(`completion=${scenario.completionOrder.join(' -> ')}\n`);
+}
 
+function assertScenario(scenario, jobs, results) {
   assert.equal(results.length, jobs.length);
-  assert.ok(state.peakActive >= 2 && state.peakActive <= poolSize);
-  assert.deepEqual(dispatchOrder, jobs.map((j) => j.jobId));
-  assert.notDeepEqual(completionOrder, dispatchOrder);
-  const usedThreads = new Set(results.map((r) => r.threadId));
-  assert.ok(usedThreads.size <= poolSize && results.length > usedThreads.size);
-  assert.ok(state.maxBufferSize <= 3);
-  for (let i = 0; i < jobs.length; i += 1) {
-    assert.equal(results[i].jobId, jobs[i].jobId);
-    assert.equal(results[i].roundId, jobs[i].roundId);
-  }
-});
+  assert.ok(scenario.state.peakActive >= 2 &&
+    scenario.state.peakActive <= POOL_SIZE);
+  assert.deepEqual(scenario.dispatchOrder, jobs.map((job) => job.jobId));
+  assert.notDeepEqual(scenario.completionOrder, scenario.dispatchOrder);
+  assertThreadReuse(results);
+  assertResultOrder(jobs, results);
+}
+
+function assertThreadReuse(results) {
+  const usedThreads = new Set(results.map((result) => result.threadId));
+  assert.ok(usedThreads.size <= POOL_SIZE && results.length > usedThreads.size);
+}
+
+function assertResultOrder(jobs, results) {
+  jobs.forEach((job, index) => {
+    assert.equal(results[index].jobId, job.jobId);
+    assert.equal(results[index].roundId, job.roundId);
+  });
+}
+
+async function testConcurrentPipeline() {
+  const scenario = createScenario();
+  const buffer = new PreparedRoundBuffer({capacity: BUFFER_CAPACITY});
+  const pool = createPool(scenario.tracker);
+  const jobs = buildScenarioJobs();
+  const results = await runJobs(pool, buffer, jobs, scenario.state);
+  await pool.terminate();
+  logEvidence(scenario);
+  assertScenario(scenario, jobs, results);
+  assert.ok(scenario.state.maxBufferSize <= BUFFER_CAPACITY);
+}
+
+test('V4-C24: concurrencia de pool, cola FIFO y buffer acotado',
+    testConcurrentPipeline);
