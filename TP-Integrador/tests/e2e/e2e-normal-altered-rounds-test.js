@@ -84,18 +84,24 @@ function handlePlayerMsg(player, msg, state, log) {
   }
 }
 
+function attachPlayerHandlers(player, state, log, reject) {
+  const {name, ws} = player;
+  ws.on('open', () => {
+    log(`[WS] ${name} conectado -> enviando JOIN`);
+    ws.send(JSON.stringify({type: 'JOIN', username: name}));
+  });
+  ws.on('message', (raw) => {
+    handlePlayerMsg(player, JSON.parse(raw.toString()), state, log);
+  });
+  ws.on('error', reject);
+}
+
+
 function createPlayer(name, state, log) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
     const player = createPlayerModel(name, ws);
-    ws.on('open', () => {
-      log(`[WS] ${name} conectado -> enviando JOIN`);
-      ws.send(JSON.stringify({type: 'JOIN', username: name}));
-    });
-    ws.on('message', (raw) => {
-      handlePlayerMsg(player, JSON.parse(raw.toString()), state, log);
-    });
-    ws.on('error', reject);
+    attachPlayerHandlers(player, state, log, reject);
     state.players.push(player);
     setTimeout(() => resolve(player), CONNECT_SETTLE_MS);
   });
@@ -201,15 +207,19 @@ function assertScenarioResult(state, p1, p2) {
   );
 }
 
-async function runScenario() {
-  const logs = [];
-  const log = (line) => logs.push(`[${new Date().toISOString()}] ${line}`);
-  const state = {
+function createScenarioState() {
+  return {
     currentRound: ZERO_COUNT,
     adjudicatedRounds: [],
     queueErrors: [],
     players: [],
   };
+}
+
+async function runScenario() {
+  const logs = [];
+  const log = (line) => logs.push(`[${new Date().toISOString()}] ${line}`);
+  const state = createScenarioState();
   const server = startServer();
   await waitForServer(server, state);
   const p1 = await createPlayer('Jugador-1', state, log);
