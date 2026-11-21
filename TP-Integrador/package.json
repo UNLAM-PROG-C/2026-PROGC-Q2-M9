@@ -33,7 +33,10 @@
     "test:e2e:c22": "node tests/e2e/e2e-normal-altered-rounds-test.js",
     "test:e2e:c23": "node tests/e2e/e2e-late-join-restart-test.js",
     "test:c25": "node --test tests/audio-failure-test.js",
-    "test:c26:regression": "node tests/e2e/v3-full-regression-test.js"
+    "test:c26:regression": "node tests/e2e/v3-full-regression-test.js",
+    "test:regression:core": "node tests/e2e/regression-suite-runner.js core",
+    "test:regression:env": "node tests/e2e/regression-suite-runner.js env",
+    "test:regression:full": "node tests/e2e/regression-suite-runner.js full"
   },
   "dependencies": {
     "express": "^4.19.2",
