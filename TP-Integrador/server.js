@@ -579,7 +579,7 @@ function buildRoundPayload(resolved) {
   return buildNewSongPayload({
     gameId: clientRound.gameId, roundId: clientRound.roundId, maxRounds,
     mode: clientRound.mode, prepared: clientRound.prepared,
-    resource, servedByServer,
+    resource, servedByServer, artist: clientRound.song.artist,
   });
 }
 
@@ -737,34 +737,42 @@ function normalizeText(text) {
  * No descarga audio, no valida su reproducción ni garantiza una lista no vacía.
  * @return {!Promise<void>} Promesa que se resuelve al cargar la playlist.
  */
-const ITUNES_SEARCH_URL =
-  'https://itunes.apple.com/search?term=No+Te+Va+Gustar&entity=song&limit=200';
+const ITUNES_SEARCH_URLS = [
+  'https://itunes.apple.com/search?term=No+Te+Va+Gustar&entity=song&limit=200',
+  'https://itunes.apple.com/search?term=Soda+Stereo&entity=song&limit=200',
+  'https://itunes.apple.com/search?term=Los+Piojos&entity=song&limit=200',
+  'https://itunes.apple.com/search?term=Divididos&entity=song&limit=200',
+];
 const FALLBACK_PREVIEW_URL =
   'https://audio-samples.github.io/samples/mp3/' +
   'blizzard_biasedfromthetruth.mp3';
 
 function fetchPlaylistFromItunes() {
-  return new Promise((resolve) => requestItunesPlaylist(resolve));
+  const index = Math.floor(Math.random() * ITUNES_SEARCH_URLS.length);
+  const url = ITUNES_SEARCH_URLS[index];
+  const artist = new URL(url).searchParams.get('term');
+  console.log(`[*] Artista seleccionado: ${artist}.`);
+  return new Promise((resolve) => requestItunesPlaylist(url, artist, resolve));
 }
 
-function requestItunesPlaylist(resolve) {
-  https.get(ITUNES_SEARCH_URL, (res) => {
-    collectItunesResponse(res, resolve);
+function requestItunesPlaylist(url, artist, resolve) {
+  https.get(url, (res) => {
+    collectItunesResponse(res, artist, resolve);
   }).on('error', (error) => handleItunesRequestError(error, resolve));
 }
 
-function collectItunesResponse(res, resolve) {
+function collectItunesResponse(res, artist, resolve) {
   let data = '';
   res.on('data', (chunk) => {
     data += chunk;
   });
-  res.on('end', () => processItunesResponse(data, resolve));
+  res.on('end', () => processItunesResponse(data, artist, resolve));
 }
 
-function processItunesResponse(data, resolve) {
+function processItunesResponse(data, artist, resolve) {
   try {
     const results = JSON.parse(data).results || [];
-    playlist = buildStudioPlaylist(results);
+    playlist = buildStudioPlaylist(results, artist);
     console.log(
         `[*] Playlist cargada: ${playlist.length} ` +
         'canciones de estudio únicas.',
@@ -775,17 +783,17 @@ function processItunesResponse(data, resolve) {
   resolve();
 }
 
-function buildStudioPlaylist(results) {
+function buildStudioPlaylist(results, artist) {
   const seen = new Set();
   const filtered = [];
-  for (const item of results) addStudioTrack(item, seen, filtered);
+  for (const item of results) addStudioTrack(item, artist, seen, filtered);
   shuffleArray(filtered);
   return filtered;
 }
 
-function addStudioTrack(item, seen, filtered) {
+function addStudioTrack(item, artist, seen, filtered) {
   const track = item.trackName || '';
-  if (!isEligibleStudioTrack(item, track)) return;
+  if (!isEligibleStudioTrack(item, track, artist)) return;
   const normalizedKey = normalizeText(track);
   if (seen.has(normalizedKey)) return;
   seen.add(normalizedKey);
@@ -794,10 +802,10 @@ function addStudioTrack(item, seen, filtered) {
   });
 }
 
-function isEligibleStudioTrack(item, track) {
-  const artist = (item.artistName || '').toLowerCase();
+function isEligibleStudioTrack(item, track, artist) {
+  const trackArtist = (item.artistName || '').toLowerCase();
   const collection = (item.collectionName || '').toLowerCase();
-  return artist.includes('no te va gustar') &&
+  return trackArtist.includes(artist.toLowerCase()) &&
     Boolean(item.previewUrl) &&
     !isLiveRecording(collection, track.toLowerCase());
 }

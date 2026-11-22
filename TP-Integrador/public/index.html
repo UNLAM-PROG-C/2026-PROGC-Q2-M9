@@ -290,7 +290,7 @@
         <div class="column">
             <div>
                 <h3 id="round-title">Adivina la Canción</h3>
-                <p style="color: #1db954; font-size: 12px; margin: 0 0 8px 0; font-weight: bold;">Hoy jugamos con: No te va gustar</p>
+                <p id="song-artist" style="color: #1db954; font-size: 12px; margin: 0 0 8px 0; font-weight: bold;"></p>
                 <div id="audio-mode-badge"></div>
                 <div id="status">Conectando...</div>
                 <audio id="audio-player" controls style="display:none;"></audio>
@@ -470,10 +470,17 @@ function handleRoundStart(data) {
   showActiveRound();
   if (data.titles) songTitles = data.titles;
   updateRoundHeader(data);
+  updateSongArtist(data.artist);
   updateAudioModeBadge(data.mode);
   document.getElementById('status').innerText = data.hint;
   playRoundAudio(data);
   resetRoundState();
+}
+
+function updateSongArtist(artist) {
+  const name = typeof artist === 'string' ? artist.trim() : '';
+  document.getElementById('song-artist').textContent =
+    name ? `Hoy jugamos con: ${name}` : '';
 }
 
 function showActiveRound() {
