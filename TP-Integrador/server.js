@@ -66,6 +66,7 @@ const DEFAULT_CONFIG_DELAY_SECONDS = 10;
 const DEFAULT_CONFIG_ROUNDS = 5;
 const DEFAULT_MIN_PLAYERS = 2;
 const DEFAULT_MAX_PLAYERS = 6;
+const DEFAULT_MAX_WRONG_ATTEMPTS = 5;
 const DEFAULT_START_OFFSET_MS = 60000;
 const PAST_START_DELAY_MS = 30000;
 const FORCE_NEXT_DELAY_SECONDS = 5;
@@ -390,6 +391,7 @@ let maxRounds = DEFAULT_CONFIG_ROUNDS;
 let delayNextRound = DEFAULT_CONFIG_DELAY_SECONDS;
 let minPlayers = DEFAULT_MIN_PLAYERS;
 let maxPlayers = DEFAULT_MAX_PLAYERS;
+let maxWrongAttempts = DEFAULT_MAX_WRONG_ATTEMPTS;
 let startTime = null;
 let gameStarted = false;
 let gameFinished = false;
@@ -659,6 +661,8 @@ function loadGameConfig() {
   maxRounds = config.maxRounds ?? DEFAULT_CONFIG_ROUNDS;
   minPlayers = config.minPlayers ?? DEFAULT_MIN_PLAYERS;
   maxPlayers = config.maxPlayers ?? DEFAULT_MAX_PLAYERS;
+  maxWrongAttempts =
+    config.maxWrongAttempts ?? DEFAULT_MAX_WRONG_ATTEMPTS;
   applyConfiguredBandUrls(config);
   startTime = resolveConfiguredStartTime(config);
   adjustPastStartTime();
@@ -947,6 +951,7 @@ const gameCoordinator = new GameCoordinator({
   playersById,
   normalizeText,
   getRoundContext,
+  getMaxWrongAttempts: () => maxWrongAttempts,
   buildWinnerView,
   sendToPlayer,
   broadcast,

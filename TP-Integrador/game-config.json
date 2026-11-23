@@ -5,6 +5,7 @@
   "maxRounds": 5,
   "minPlayers": 2,
   "maxPlayers": 6,
+  "maxWrongAttempts": 5,
   "itunesSearchUrls": [
     "https://itunes.apple.com/search?term=No+Te+Va+Gustar&entity=song&limit=200",
     "https://itunes.apple.com/search?term=Soda+Stereo&entity=song&limit=200",

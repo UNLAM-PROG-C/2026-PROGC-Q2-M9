@@ -300,7 +300,9 @@
                 <div id="suggestions-list"></div>
                 <div id="potential-points">Potenciales puntos: 100 pts</div>
                 <input type="text" id="answer" placeholder="Escribí el nombre de la canción..." autocomplete="off" oninput="handleInput()" onkeydown="if(event.key === 'Enter') { sendAnswer(); }">
-                <button class="btn-primary" onclick="sendAnswer();">Enviar Respuesta</button>
+                <button id="answer-button" class="btn-primary" onclick="sendAnswer();">
+                    Enviar Respuesta
+                </button>
                 <button class="btn-danger" onclick="leaveGame()">Desconectarse</button>
             </div>
         </div>
@@ -594,6 +596,24 @@ function handleAnswerRejected(data) {
     document.getElementById('status').innerText =
       `Respuesta rechazada: la sesión está en estado ${data.sessionState}.`;
   }
+
+  if (data.reason === 'ATTEMPT_LIMIT_REACHED') {
+    showAttemptLimitReached(data);
+  }
+}
+
+function setAnswerControlsDisabled(disabled) {
+  document.getElementById('answer').disabled = disabled;
+  document.getElementById('answer-button').disabled = disabled;
+}
+
+function showAttemptLimitReached(data) {
+  document.getElementById('status').innerText =
+        `Alcanzaste el máximo de ${data.maxWrongAttempts} ` +
+        'intentos incorrectos.';
+  document.getElementById('potential-points').innerText =
+        'Sin intentos disponibles en esta ronda.';
+  setAnswerControlsDisabled(true);
 }
 
 function showEligibilityRejection(data) {
@@ -925,6 +945,7 @@ function resetRoundState() {
   const list = document.getElementById('attempts-list');
   list.innerHTML = '<li style="color: #777; justify-content: center;">' +
     'Sin intentos aún</li>';
+  setAnswerControlsDisabled(false);
 }
 
 /**

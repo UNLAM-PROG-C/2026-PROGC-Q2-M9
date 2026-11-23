@@ -30,6 +30,7 @@
     "test:c20": "node --test tests/audio-protocol-test.js",
     "test:c21": "node --test tests/frontend-audio-mode-test.js",
     "test:score-display": "node --test tests/frontend-score-display-test.js",
+    "test:attempt-limit": "node --test tests/game-attempt-limit-test.js",
     "test:c24": "node --test tests/concurrency-audio/pool-queue-buffer-concurrency-test.js",
     "test:e2e:c22": "node tests/e2e/e2e-normal-altered-rounds-test.js",
     "test:e2e:c23": "node tests/e2e/e2e-late-join-restart-test.js",
