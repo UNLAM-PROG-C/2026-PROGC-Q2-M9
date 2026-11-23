@@ -64,6 +64,8 @@ const TEST_QUEUE_DRAIN_DELAY_MS = Math.max(
 
 const DEFAULT_CONFIG_DELAY_SECONDS = 10;
 const DEFAULT_CONFIG_ROUNDS = 5;
+const DEFAULT_MIN_PLAYERS = 2;
+const DEFAULT_MAX_PLAYERS = 6;
 const DEFAULT_START_OFFSET_MS = 60000;
 const PAST_START_DELAY_MS = 30000;
 const FORCE_NEXT_DELAY_SECONDS = 5;
@@ -385,7 +387,9 @@ let playlist = [];
 let currentSongIndex = 0;
 let currentRound = 0;
 let maxRounds = DEFAULT_CONFIG_ROUNDS;
-let delayNextRound = DEFAULT_CONFIG_DELAY_SECONDS; // segundos
+let delayNextRound = DEFAULT_CONFIG_DELAY_SECONDS;
+let minPlayers = DEFAULT_MIN_PLAYERS;
+let maxPlayers = DEFAULT_MAX_PLAYERS;
 let startTime = null;
 let gameStarted = false;
 let gameFinished = false;
@@ -458,7 +462,9 @@ function buildSessionStateView() {
     readyPlayerIds: sessionCoordinator.getReadyPlayerIds(),
     readyCount: sessionCoordinator.getReadyCount(),
     connectedCount: connectedPlayerIds.length,
-    canStart: sessionCoordinator.canStart(connectedPlayerIds),
+    minPlayers,
+    maxPlayers,
+    canStart: canStartConfiguredSession(connectedPlayerIds),
   };
 }
 
@@ -620,7 +626,12 @@ function startGameFromLobby(reason) {
 function canStartGameFromLobby() {
   if (sessionCoordinator.getState() !== SessionState.LOBBY) return false;
   if (TEST_MODE) return true;
-  return sessionCoordinator.canStart(getConnectedPlayerIds());
+  return canStartConfiguredSession(getConnectedPlayerIds());
+}
+
+function canStartConfiguredSession(playerIds) {
+  return playerIds.length >= minPlayers &&
+    sessionCoordinator.canStart(playerIds);
 }
 
 function initializeFirstRound() {
@@ -646,6 +657,8 @@ function loadGameConfig() {
   const config = readGameConfigFile();
   delayNextRound = config.delayNextRound ?? DEFAULT_CONFIG_DELAY_SECONDS;
   maxRounds = config.maxRounds ?? DEFAULT_CONFIG_ROUNDS;
+  minPlayers = config.minPlayers ?? DEFAULT_MIN_PLAYERS;
+  maxPlayers = config.maxPlayers ?? DEFAULT_MAX_PLAYERS;
   applyConfiguredBandUrls(config);
   startTime = resolveConfiguredStartTime(config);
   adjustPastStartTime();
@@ -706,6 +719,7 @@ function printSavedConfig() {
   console.log(`[+] Demora entre rondas: ${delayNextRound} segundos`);
   console.log(`[+] Total de rondas: ${maxRounds}`);
   console.log(`[+] Links de bandas cargados: ${itunesSearchUrls.length}`);
+  console.log(`[+] Jugadores: mínimo ${minPlayers}, máximo ${maxPlayers}`);
   console.log('----------------------------------------------\n');
 }
 
@@ -969,11 +983,26 @@ function handleJoin(ws, context, data) {
     logDuplicateJoin(context);
     return;
   }
+  if (rejectJoinWhenRoomIsFull(ws)) {
+    return;
+  }
   const player = registerJoinedPlayer(ws, context, data.username);
   notifyPlayerRegistered(ws, player);
   broadcastLeaderboard();
   broadcastSessionState();
   sendJoinState(ws, player);
+}
+
+function rejectJoinWhenRoomIsFull(ws) {
+  if (getConnectedPlayerIds().length < maxPlayers) {
+    return false;
+  }
+  ws.send(JSON.stringify({
+    type: 'JOIN_REJECTED',
+    reason: 'ROOM_FULL',
+    maxPlayers,
+  }));
+  return true;
 }
 
 function logDuplicateJoin(context) {
@@ -1403,7 +1432,7 @@ function checkScheduledStart(timer) {
 function canPassReadyBarrier() {
   if (TEST_MODE) return true;
   const connectedIds = getConnectedPlayerIds();
-  if (sessionCoordinator.canStart(connectedIds)) return true;
+  if (canStartConfiguredSession(connectedIds)) return true;
   logPendingReadyBarrier(connectedIds.length);
   return false;
 }

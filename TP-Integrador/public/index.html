@@ -444,6 +444,17 @@ function handlePlayerRegistered(data) {
   myUsername = data.displayName || myUsername;
 }
 
+function handleJoinRejected(data) {
+  if (data.reason === 'ROOM_FULL') {
+    alert(`La sala está completa. Máximo ${data.maxPlayers} jugadores.`);
+  } else {
+    alert('No fue posible ingresar a la partida.');
+  }
+  if (ws) {
+    ws.close();
+  }
+}
+
 function handleWaitingStart(data) {
   songTitles = data.titles || [];
   document.getElementById('waiting-box').style.display = 'block';
@@ -619,6 +630,7 @@ function appendLeaderboardPlayer(list, player) {
 
 const SERVER_MESSAGE_HANDLERS = {
   PLAYER_REGISTERED: handlePlayerRegistered,
+  JOIN_REJECTED: handleJoinRejected,
   SESSION_STATE: updateSessionState,
   WAITING_START: handleWaitingStart,
   WAITING_NEXT_ROUND: handleWaitingNextRound,
@@ -667,9 +679,19 @@ function updateLobbyReadyControls(data) {
 
 function updateReadyDetail(data) {
   if (data.connectedCount === 0) return showNoPlayersReadyDetail();
+  if (data.connectedCount < data.minPlayers) {
+    return showMinimumPlayersDetail(data);
+  }
   if (data.canStart) return showAllReadyDetail();
   if (myReady) return showOwnReadyDetail();
   showNotReadyDetail();
+}
+
+function showMinimumPlayersDetail(data) {
+  document.getElementById('ready-detail').innerText =
+        `Se necesitan al menos ${data.minPlayers} jugadores para comenzar.`;
+  document.getElementById('waiting-msg').innerText =
+        'Esperando que se conecten más jugadores...';
 }
 
 function showNoPlayersReadyDetail() {
