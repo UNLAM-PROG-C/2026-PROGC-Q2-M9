@@ -11,6 +11,7 @@ import WebSocket, {WebSocketServer} from 'ws';
 import path from 'path';
 import https from 'https';
 import readline from 'readline';
+import fs from 'fs';
 import {fileURLToPath} from 'url';
 import {AnswerQueue} from './game/answer-queue.js';
 import {GameCoordinator} from './game/game-coordinator.js';
@@ -71,7 +72,7 @@ const TEST_LOOP_INTERVAL_MS = 10;
 const MILLISECONDS_PER_SECOND = 1000;
 const PLAYER_ID_PAD_WIDTH = 3;
 const SEQUENCE_PAD_WIDTH = 6;
-const TIME_HH_MM_LENGTH = 5;
+const GAME_CONFIG_PATH = path.join(__dirname, 'game-config.json');
 
 const app = express();
 const server = http.createServer(app);
@@ -638,63 +639,54 @@ function logCurrentRoundStart() {
   );
 }
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
-
 /**
- * Solicita al operador horario, demora y rondas mediante callbacks readline.
- * Aplica valores predeterminados y pospone un horario pasado. No realiza una
- * validación exhaustiva de los datos ingresados. Luego inicia el servidor.
+ * Lee config/game-config.json y aplica parámetros de partida y bandas.
  */
-function askConfig() {
-  printConfigHeader();
-  const defaultTimeStr = buildDefaultStartTime();
-  const question = '1. ¿A qué hora empezamos la primera ronda? ' +
-    `(HH:MM) [Por defecto: ${defaultTimeStr}]: `;
-  rl.question(question, (answer) => askRoundDelay(answer, defaultTimeStr));
-}
-
-function printConfigHeader() {
-  console.log('\n==============================================');
-  console.log('   CONFIGURACIÓN DE LA PARTIDA DE TRIVIA');
-  console.log('==============================================');
-}
-
-function buildDefaultStartTime() {
-  const defaultTime = new Date(Date.now() + DEFAULT_START_OFFSET_MS);
-  const timeText = defaultTime.toTimeString().split(' ')[0];
-  return timeText.substring(0, TIME_HH_MM_LENGTH);
-}
-
-function askRoundDelay(ansTime, defaultTimeStr) {
-  const startValue = ansTime.trim() || defaultTimeStr;
-  const question = '2. ¿Cuántos segundos después de que alguien ' +
-    'adivina comienza la siguiente ronda? [Por defecto: 10]: ';
-  rl.question(question, (answer) => askRoundCount(startValue, answer));
-}
-
-function askRoundCount(startValue, ansDelay) {
-  delayNextRound = parseInt(ansDelay) || DEFAULT_CONFIG_DELAY_SECONDS;
-  const question = '3. ¿Cuántas rondas vamos a jugar? ' +
-    '[Por defecto: 5]: ';
-  rl.question(question, (answer) => applyGameConfig(startValue, answer));
-}
-
-function applyGameConfig(startValue, ansRounds) {
-  maxRounds = parseInt(ansRounds) || DEFAULT_CONFIG_ROUNDS;
-  startTime = parseStartTime(startValue);
+function loadGameConfig() {
+  const config = readGameConfigFile();
+  delayNextRound = config.delayNextRound ?? DEFAULT_CONFIG_DELAY_SECONDS;
+  maxRounds = config.maxRounds ?? DEFAULT_CONFIG_ROUNDS;
+  applyConfiguredBandUrls(config);
+  startTime = resolveConfiguredStartTime(config);
   adjustPastStartTime();
   printSavedConfig();
-  rl.close();
-  startServerAndGameLoop();
+}
+
+function readGameConfigFile() {
+  if (!fs.existsSync(GAME_CONFIG_PATH)) {
+    return {};
+  }
+  const raw = fs.readFileSync(GAME_CONFIG_PATH, 'utf8');
+  return JSON.parse(raw);
+}
+
+function applyConfiguredBandUrls(config) {
+  const urls = config.itunesSearchUrls;
+  if (!Array.isArray(urls)) return;
+  const validUrls = urls.filter(
+      (url) => typeof url === 'string' && url.trim().length > 0,
+  );
+  if (validUrls.length > 0) {
+    itunesSearchUrls = validUrls;
+  }
+}
+
+function resolveConfiguredStartTime(config) {
+  if (typeof config.startTime === 'string' && config.startTime.trim()) {
+    return parseStartTime(config.startTime.trim());
+  }
+  const delayMs = Number.isFinite(config.startDelaySeconds) ?
+    config.startDelaySeconds * MILLISECONDS_PER_SECOND :
+    DEFAULT_START_OFFSET_MS;
+  return new Date(Date.now() + delayMs);
 }
 
 function parseStartTime(startValue) {
   const [hours, minutes] = startValue.split(':');
   const configured = new Date();
-  configured.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+  configured.setHours(
+      Number.parseInt(hours, 10), Number.parseInt(minutes, 10), 0, 0,
+  );
   return configured;
 }
 
@@ -709,12 +701,14 @@ function adjustPastStartTime() {
 
 function printSavedConfig() {
   console.log('\n----------------------------------------------');
-  console.log('[+] ¡Configuración guardada con éxito!');
+  console.log(`[+] Configuración cargada desde ${GAME_CONFIG_PATH}`);
   console.log(`[+] Hora de inicio: ${startTime.toLocaleTimeString()}`);
   console.log(`[+] Demora entre rondas: ${delayNextRound} segundos`);
   console.log(`[+] Total de rondas: ${maxRounds}`);
+  console.log(`[+] Links de bandas cargados: ${itunesSearchUrls.length}`);
   console.log('----------------------------------------------\n');
 }
+
 
 /**
  * Normaliza texto para comparar títulos sin mayúsculas ni marcas diacríticas
@@ -737,22 +731,25 @@ function normalizeText(text) {
  * No descarga audio, no valida su reproducción ni garantiza una lista no vacía.
  * @return {!Promise<void>} Promesa que se resuelve al cargar la playlist.
  */
-const ITUNES_SEARCH_URLS = [
+const DEFAULT_ITUNES_SEARCH_URLS = [
   'https://itunes.apple.com/search?term=No+Te+Va+Gustar&entity=song&limit=200',
   'https://itunes.apple.com/search?term=Soda+Stereo&entity=song&limit=200',
   'https://itunes.apple.com/search?term=Los+Piojos&entity=song&limit=200',
   'https://itunes.apple.com/search?term=Divididos&entity=song&limit=200',
 ];
+let itunesSearchUrls = [...DEFAULT_ITUNES_SEARCH_URLS];
 const FALLBACK_PREVIEW_URL =
   'https://audio-samples.github.io/samples/mp3/' +
   'blizzard_biasedfromthetruth.mp3';
 
 function fetchPlaylistFromItunes() {
-  const index = Math.floor(Math.random() * ITUNES_SEARCH_URLS.length);
-  const url = ITUNES_SEARCH_URLS[index];
+  const index = Math.floor(Math.random() * itunesSearchUrls.length);
+  const url = itunesSearchUrls[index];
   const artist = new URL(url).searchParams.get('term');
   console.log(`[*] Artista seleccionado: ${artist}.`);
-  return new Promise((resolve) => requestItunesPlaylist(url, artist, resolve));
+  return new Promise(
+      (resolve) => requestItunesPlaylist(url, artist, resolve),
+  );
 }
 
 function requestItunesPlaylist(url, artist, resolve) {
@@ -1431,7 +1428,6 @@ function scheduledStartReason() {
 function startDeterministicTestMode() {
   playlist = buildDeterministicPlaylist();
   resetDeterministicState();
-  rl.close();
   logDeterministicMode();
   startServerAndGameLoop();
 }
@@ -1478,7 +1474,8 @@ function logTestQueueDelay() {
 if (TEST_MODE) {
   startDeterministicTestMode();
 } else {
+  loadGameConfig();
   fetchPlaylistFromItunes().then(() => {
-    askConfig();
+    startServerAndGameLoop();
   });
 }

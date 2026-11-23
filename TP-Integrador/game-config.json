@@ -1,0 +1,12 @@
+{
+  "startTime": null,
+  "startDelaySeconds": 60,
+  "delayNextRound": 10,
+  "maxRounds": 5,
+  "itunesSearchUrls": [
+    "https://itunes.apple.com/search?term=No+Te+Va+Gustar&entity=song&limit=200",
+    "https://itunes.apple.com/search?term=Soda+Stereo&entity=song&limit=200",
+    "https://itunes.apple.com/search?term=Los+Piojos&entity=song&limit=200",
+    "https://itunes.apple.com/search?term=Divididos&entity=song&limit=200"
+  ]
+}
