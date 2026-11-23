@@ -51,6 +51,7 @@ function resolveClientAudioUrl({
  * @param {string=} options.resource URL original (preview) o recurso.
  * @param {boolean=} options.servedByServer Si el audio se sirve por HTTP.
  * @param {string=} options.hint Texto de pista para el cliente.
+a * @param {string=} options.artist Artista de la canción de la ronda.
  * @return {!Object} Mensaje serializable listo para broadcast WebSocket.
  */
 /**
@@ -83,7 +84,7 @@ function buildNewSongPayload(options) {
     type: MESSAGE_TYPE_NEW_SONG, gameId, roundId,
     round: roundId, maxRounds, mode,
     prepared: Boolean(normalized.prepared),
-    song: audioUrl, audioUrl, hint,
+    song: audioUrl, audioUrl, hint, artist: normalized.artist,
   };
 }
 

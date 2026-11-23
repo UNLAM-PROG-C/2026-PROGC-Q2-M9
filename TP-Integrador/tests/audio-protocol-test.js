@@ -69,7 +69,7 @@ async function withTestServer(registry, fn) {
 test('C20-01: payload NORMAL conserva preview y compatibilidad V3', () => {
   const payload = buildNewSongPayload({
     gameId: GAME_ID, roundId: ROUND_ONE, maxRounds: MAX_ROUNDS,
-    mode: AudioMode.NORMAL, resource: PREVIEW_URL,
+    mode: AudioMode.NORMAL, resource: PREVIEW_URL, artist: 'Soda Stereo',
   });
   assert.equal(payload.type, MESSAGE_TYPE_NEW_SONG);
   assert.equal(payload.gameId, GAME_ID);
@@ -78,6 +78,7 @@ test('C20-01: payload NORMAL conserva preview y compatibilidad V3', () => {
   assert.equal(payload.mode, AudioMode.NORMAL);
   assert.equal(payload.song, PREVIEW_URL);
   assert.equal(payload.audioUrl, PREVIEW_URL);
+  assert.equal(payload.artist, 'Soda Stereo');
   assert.equal(payload.prepared, false);
 });
 

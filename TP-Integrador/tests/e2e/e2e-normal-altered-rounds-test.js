@@ -68,7 +68,7 @@ function recordRoundMsg(player, msg, state, log) {
     return;
   }
   const hasAudioRef = Boolean(msg.audioUrl || msg.song);
-  player.roundsSeen.push({round, hasAudioRef});
+  player.roundsSeen.push({round, hasAudioRef, artist: msg.artist});
   log(`[ROUND] ${player.name} r=${round} audio=${hasAudioRef}`);
 }
 
@@ -199,6 +199,11 @@ function assertScenarioResult(state, p1, p2) {
   assert.ok(
       p1.roundsSeen.every((item) => item.hasAudioRef),
       'Rondas con referencia de audio',
+  );
+  assert.ok(
+      p1.roundsSeen.every((item) => item.artist === 'ALT-02 Test Harness') &&
+      p2.roundsSeen.every((item) => item.artist === 'ALT-02 Test Harness'),
+      'Ambos jugadores reciben el artista de cada ronda',
   );
   assertAdjudications(state.adjudicatedRounds);
   assert.ok(

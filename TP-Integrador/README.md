@@ -1,5 +1,12 @@
 # Trivia Musical - Baseline V4
 
+## Selección de canciones
+
+Al iniciar el servidor se elige al azar una URL de `ITUNES_SEARCH_URLS` en
+`server.js`. La playlist contiene canciones del artista indicado en el
+parámetro `term` de esa URL y se mezcla antes de jugar. La misma selección
+se conserva al reiniciar una partida; para elegir otra se reinicia el servidor.
+
 ## Baseline V3 de origen
 
 Tag local de origen:

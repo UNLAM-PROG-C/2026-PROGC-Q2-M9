@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import {fileURLToPath} from 'node:url';
+import vm from 'node:vm';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML_PATH = path.join(__dirname, '..', 'public', 'index.html');
@@ -40,4 +41,29 @@ test('C21-04: GAME_RESET limpia el indicador de modo de audio', () => {
   const gameResetBlock = extractGameResetBlock();
   assert.ok(html.includes('GAME_RESET: handleGameReset'));
   assert.ok(gameResetBlock.includes('resetAudioModeBadge();'));
+});
+
+test('la ronda muestra el artista recibido y limpia el dato ausente', () => {
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) {
+        elements.set(id, {
+          style: {}, addEventListener() {}, play: () => Promise.resolve(),
+        });
+      }
+      return elements.get(id);
+    },
+  };
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const context = vm.createContext({document, console});
+  vm.runInContext(script, context);
+  context.handleRoundStart({
+    artist: 'Soda Stereo', roundId: 1, maxRounds: 4, mode: 'NORMAL',
+    audioUrl: 'https://example.test/preview',
+  });
+  assert.equal(elements.get('song-artist').textContent,
+      'Hoy jugamos con: Soda Stereo');
+  context.handleRoundStart({roundId: 2, maxRounds: 4, mode: 'NORMAL'});
+  assert.equal(elements.get('song-artist').textContent, '');
 });
