@@ -2,6 +2,7 @@
   "startTime": null,
   "startDelaySeconds": 60,
   "delayNextRound": 10,
+  "roundTimeoutSeconds": 60,
   "maxRounds": 5,
   "minPlayers": 2,
   "maxPlayers": 6,

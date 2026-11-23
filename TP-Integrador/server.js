@@ -48,6 +48,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // ALT-02 / C8: modo determinístico para pruebas automatizadas.
 // No altera el modo normal; solo se activa con TRIVIA_TEST_MODE=1.
 const TEST_MODE = process.env.TRIVIA_TEST_MODE === '1';
+
 const MIN_TEST_START_DELAY_MS = 100;
 const SERVER_PORT = Number.parseInt(process.env.PORT || '3000', 10);
 const TEST_ROUNDS = Math.max(
@@ -61,12 +62,20 @@ const TEST_SONG_TITLE = process.env.TRIVIA_TEST_SONG_TITLE || 'ALT02 TEST SONG';
 const TEST_QUEUE_DRAIN_DELAY_MS = Math.max(
     0, Number.parseInt(process.env.TRIVIA_TEST_QUEUE_DRAIN_DELAY_MS || '0', 10),
 );
+const TEST_ROUND_TIMEOUT_SECONDS = Math.max(
+    1,
+    Number.parseInt(
+        process.env.TRIVIA_TEST_ROUND_TIMEOUT_SECONDS || '60',
+        10,
+    ),
+);
 
 const DEFAULT_CONFIG_DELAY_SECONDS = 10;
 const DEFAULT_CONFIG_ROUNDS = 5;
 const DEFAULT_MIN_PLAYERS = 2;
 const DEFAULT_MAX_PLAYERS = 6;
 const DEFAULT_MAX_WRONG_ATTEMPTS = 5;
+const DEFAULT_ROUND_TIMEOUT_SECONDS = 60;
 const DEFAULT_START_OFFSET_MS = 60000;
 const PAST_START_DELAY_MS = 30000;
 const FORCE_NEXT_DELAY_SECONDS = 5;
@@ -168,8 +177,8 @@ function configureLateJoinEligibility(player) {
   player.eligibleFromRoundId = getCurrentRoundId() + 1;
   console.log(
       `[SC] LATE_JOIN [${player.playerId} | ${player.displayName}] ` +
-      `en ronda ${getCurrentRoundId()}; ` +
-      `elegible desde ronda ${player.eligibleFromRoundId}.`,
+    `en ronda ${getCurrentRoundId()}; ` +
+    `elegible desde ronda ${player.eligibleFromRoundId}.`,
   );
 }
 
@@ -327,7 +336,7 @@ function enqueueAnswerEvent(answerEvent) {
       .padStart(SEQUENCE_PAD_WIDTH, '0');
   console.log(
       `[Q+] ANSWER #${sequence} encolado. ` +
-      `queueSize=${answerQueue.size()}.`,
+    `queueSize=${answerQueue.size()}.`,
   );
   scheduleAnswerQueueProcessing();
 }
@@ -380,7 +389,7 @@ function logDequeuedAnswer(answerEvent) {
       .padStart(SEQUENCE_PAD_WIDTH, '0');
   console.log(
       `[Q-] ANSWER #${sequence} desencolado. ` +
-      `queueSize=${answerQueue.size()}.`,
+    `queueSize=${answerQueue.size()}.`,
   );
 }
 
@@ -392,9 +401,12 @@ let delayNextRound = DEFAULT_CONFIG_DELAY_SECONDS;
 let minPlayers = DEFAULT_MIN_PLAYERS;
 let maxPlayers = DEFAULT_MAX_PLAYERS;
 let maxWrongAttempts = DEFAULT_MAX_WRONG_ATTEMPTS;
+let roundTimeoutSeconds = DEFAULT_ROUND_TIMEOUT_SECONDS;
 let startTime = null;
 let gameStarted = false;
 let gameFinished = false;
+let transitionTimeout = null;
+let roundTimeout = null;
 // V3 / C4: SessionCoordinator refleja explícitamente
 // el ciclo de vida que la aplicación ya ejecuta.
 const sessionCoordinator = new SessionCoordinator();
@@ -433,7 +445,7 @@ function transitionSessionTo(nextState, reason) {
 
   console.log(
       `[SC] ${transition.previousState} -> ${transition.currentState} ` +
-        `(gameId=${transition.gameId}, reason=${reason})`,
+    `(gameId=${transition.gameId}, reason=${reason})`,
   );
 
   return transition;
@@ -535,14 +547,14 @@ function resolveClientSongSource(resolved) {
 function logAudioPublishFailure(resolved, reason) {
   console.log(
       `[AUDIO_PUBLISH_FAIL] gameId=${resolved.gameId} ` +
-      `roundId=${resolved.roundId} reason=${reason}`,
+    `roundId=${resolved.roundId} reason=${reason}`,
   );
 }
 
 function logAudioPublishSuccess(resolved, url) {
   console.log(
       `[AUDIO_PUBLISH] gameId=${resolved.gameId} ` +
-      `roundId=${resolved.roundId} mode=${resolved.mode} url=${url}`,
+    `roundId=${resolved.roundId} mode=${resolved.mode} url=${url}`,
   );
 }
 
@@ -637,18 +649,16 @@ function canStartConfiguredSession(playerIds) {
 }
 
 function initializeFirstRound() {
-  gameStarted = true;
   gameFinished = false;
   currentRound = 0;
-  resetAllPlayerAttempts();
-  gameCoordinator.beginRound(currentRound + 1);
+  activateCurrentRound();
 }
 
 function logCurrentRoundStart() {
   const song = playlist[currentSongIndex];
   console.log(
       `\n[♫] Comienza la ronda nro ${currentRound + 1} de ${maxRounds}: ` +
-      `La canción es "${song.title}"`,
+    `La canción es "${song.title}"`,
   );
 }
 
@@ -663,6 +673,8 @@ function loadGameConfig() {
   maxPlayers = config.maxPlayers ?? DEFAULT_MAX_PLAYERS;
   maxWrongAttempts =
     config.maxWrongAttempts ?? DEFAULT_MAX_WRONG_ATTEMPTS;
+  roundTimeoutSeconds =
+    config.roundTimeoutSeconds ?? DEFAULT_ROUND_TIMEOUT_SECONDS;
   applyConfiguredBandUrls(config);
   startTime = resolveConfiguredStartTime(config);
   adjustPastStartTime();
@@ -712,7 +724,7 @@ function adjustPastStartTime() {
   startTime = new Date(Date.now() + PAST_START_DELAY_MS);
   console.log(
       '[!] La hora indicada ya pasó o es muy próxima. ' +
-      'Iniciando en 30 segundos...',
+    'Iniciando en 30 segundos...',
   );
 }
 
@@ -790,7 +802,7 @@ function processItunesResponse(data, artist, resolve) {
     playlist = buildStudioPlaylist(results, artist);
     console.log(
         `[*] Playlist cargada: ${playlist.length} ` +
-        'canciones de estudio únicas.',
+      'canciones de estudio únicas.',
     );
   } catch (error) {
     handleItunesParseError(error);
@@ -874,12 +886,32 @@ function getRoundContext() {
   };
 }
 
+function scheduleRoundTimeout() {
+  clearRoundTimeout();
+  roundTimeout = setTimeout(
+      handleRoundTimeout,
+      roundTimeoutSeconds * MILLISECONDS_PER_SECOND,
+  );
+}
+
+function clearRoundTimeout() {
+  if (!roundTimeout) return;
+  clearTimeout(roundTimeout);
+  roundTimeout = null;
+}
+
+function handleRoundTimeout() {
+  roundTimeout = null;
+  endRoundWithoutWinner('TIMEOUT');
+}
+
 /**
  * Finaliza la partida tras la adjudicación de la última ronda.
  * Actualiza la sesión y los flags, calcula el ganador y difunde los resultados.
  * No elimina registros de jugadores ni crea una nueva generación.
  */
 function finishGameFromAnswer() {
+  clearRoundTimeout();
   finishCurrentGame('fin de partida por respuesta correcta');
 }
 
@@ -913,24 +945,86 @@ function winnerLabel(winner) {
  * @param {number} delaySeconds Demora solicitada en segundos.
  */
 function scheduleNextRoundFromAnswer(delaySeconds) {
-  transitionSessionTo(
-      SessionState.BETWEEN_ROUNDS,
+  clearRoundTimeout();
+  scheduleNextRound(
+      delaySeconds,
       'ronda adjudicada; esperando siguiente ronda',
   );
+}
+
+function scheduleNextRound(delaySeconds, reason) {
+  transitionSessionTo(SessionState.BETWEEN_ROUNDS, reason);
   gameStarted = false;
   transitionTimeout = setTimeout(
-      startNextRoundAfterAnswer,
+      startNextRound,
       delaySeconds * MILLISECONDS_PER_SECOND,
   );
 }
 
-function startNextRoundAfterAnswer() {
+function startNextRound() {
   advanceRoundIndices();
   transitionSessionTo(SessionState.ROUND_ACTIVE, 'inicio de siguiente ronda');
   activateCurrentRound();
   logCurrentRoundStart();
   broadcastAndPrefetchCurrentRound();
   broadcastLeaderboard();
+}
+
+function isCurrentRoundLast() {
+  const roundNumber = currentRound + 1;
+  return roundNumber >= maxRounds ||
+    roundNumber >= playlist.length;
+}
+
+function endRoundWithoutWinner(reason) {
+  if (!canEndActiveRound()) return false;
+  clearRoundTimeout();
+  gameStarted = false;
+  broadcastRoundEnded(reason);
+  finishOrScheduleNoWinner(reason);
+  return true;
+}
+
+function getEligibleConnectedPlayers() {
+  return Array.from(playersById.values())
+      .filter((player) => player.connected)
+      .filter(isPlayerEligibleForCurrentRound);
+}
+
+function allEligiblePlayersExhausted() {
+  const eligible = getEligibleConnectedPlayers();
+  return eligible.length > 0 &&
+    eligible.every((player) => player.attempts >= maxWrongAttempts);
+}
+
+function handleWrongAnswerProcessed() {
+  if (!allEligiblePlayersExhausted()) return;
+  endRoundWithoutWinner('ATTEMPTS_EXHAUSTED');
+}
+
+function canEndActiveRound() {
+  return sessionCoordinator.getState() === SessionState.ROUND_ACTIVE &&
+    gameStarted && !gameFinished;
+}
+
+function finishOrScheduleNoWinner(reason) {
+  if (isCurrentRoundLast()) {
+    finishCurrentGame(`fin de partida sin ganador: ${reason}`);
+    return;
+  }
+  scheduleNextRound(
+      delayNextRound,
+      `ronda sin ganador: ${reason}`,
+  );
+}
+
+function broadcastRoundEnded(reason) {
+  broadcast({
+    type: 'ROUND_ENDED',
+    reason,
+    songTitle: playlist[currentSongIndex].title,
+    delay: delayNextRound,
+  });
 }
 
 function advanceRoundIndices() {
@@ -942,6 +1036,7 @@ function activateCurrentRound() {
   gameStarted = true;
   resetAllPlayerAttempts();
   gameCoordinator.beginRound(currentRound + 1);
+  scheduleRoundTimeout();
 }
 
 // ALT-01 / C6: único adjudicador de AnswerEvent.
@@ -952,6 +1047,7 @@ const gameCoordinator = new GameCoordinator({
   normalizeText,
   getRoundContext,
   getMaxWrongAttempts: () => maxWrongAttempts,
+  onWrongAnswerProcessed: handleWrongAnswerProcessed,
   buildWinnerView,
   sendToPlayer,
   broadcast,
@@ -1013,7 +1109,7 @@ function rejectJoinWhenRoomIsFull(ws) {
 function logDuplicateJoin(context) {
   console.log(
       '[!] JOIN duplicado ignorado para ' +
-      `[${context.playerId} | ${context.username}]`,
+    `[${context.playerId} | ${context.username}]`,
   );
 }
 
@@ -1104,7 +1200,7 @@ function logReadyChange(player, result, ready) {
   const action = ready ? 'READY' : 'UNREADY';
   console.log(
       `[SC] ${action} [${player.playerId} | ${player.displayName}] ` +
-      `(ready=${result.readyCount}/${getConnectedPlayerIds().length})`,
+    `(ready=${result.readyCount}/${getConnectedPlayerIds().length})`,
   );
 }
 
@@ -1117,7 +1213,7 @@ function logReadyError(player, error, ready) {
   const action = ready ? 'READY' : 'UNREADY';
   console.log(
       `[SC] ${action} rechazado para ` +
-      `[${player.playerId} | ${player.displayName}]: ${error.message}`,
+    `[${player.playerId} | ${player.displayName}]: ${error.message}`,
   );
 }
 
@@ -1141,8 +1237,8 @@ function rejectInactiveAnswer(player) {
   }
   console.log(
       '[SCx] ANSWER rechazado para ' +
-      `[${player.playerId} | ${player.displayName}]: ` +
-      `sesión no activa para respuestas (state=${state}).`,
+    `[${player.playerId} | ${player.displayName}]: ` +
+    `sesión no activa para respuestas (state=${state}).`,
   );
   sendInactiveAnswerRejection(player, state);
   return true;
@@ -1160,9 +1256,9 @@ function rejectIneligibleAnswer(player) {
   if (isPlayerEligibleForCurrentRound(player)) return false;
   console.log(
       '[SC] ANSWER rechazado para ' +
-      `[${player.playerId} | ${player.displayName}]: ` +
-      `no elegible para ronda ${getCurrentRoundId()}; ` +
-      `elegible desde ronda ${player.eligibleFromRoundId}.`,
+    `[${player.playerId} | ${player.displayName}]: ` +
+    `no elegible para ronda ${getCurrentRoundId()}; ` +
+    `elegible desde ronda ${player.eligibleFromRoundId}.`,
   );
   sendIneligibleAnswerRejection(player);
   return true;
@@ -1182,8 +1278,8 @@ function logReceivedAnswer(answerEvent, player) {
       .padStart(SEQUENCE_PAD_WIDTH, '0');
   console.log(
       `[→] ANSWER #${sequence} recibido de ` +
-      `[${player.playerId} | ${player.displayName}] ` +
-      `en ronda ${answerEvent.roundId}.`,
+    `[${player.playerId} | ${player.displayName}] ` +
+    `en ronda ${answerEvent.roundId}.`,
   );
 }
 
@@ -1201,7 +1297,7 @@ function disconnectRegisteredPlayer(player) {
   sessionCoordinator.removePlayerReadiness(player.playerId);
   console.log(
       '[-] Usuario desconectado: ' +
-      `[${player.playerId} | ${player.displayName}]`,
+    `[${player.playerId} | ${player.displayName}]`,
   );
 }
 
@@ -1269,8 +1365,6 @@ function handleOperatorCommand(answer) {
   forceNextRound();
 }
 
-let transitionTimeout = null;
-
 /**
  * Reinicia desde GAME_OVER: cancela el timer de transición, incrementa la
  * generación de sesión y limpia READY por medio del coordinador de sesión.
@@ -1294,8 +1388,8 @@ function canRestartGame() {
   if (sessionCoordinator.getState() === SessionState.GAME_OVER) return true;
   console.log(
       '[SCx] RESTART rechazado: ' +
-      `estado actual=${sessionCoordinator.getState()}. ` +
-      'RESTART solo es válido desde GAME_OVER.',
+    `estado actual=${sessionCoordinator.getState()}. ` +
+    'RESTART solo es válido desde GAME_OVER.',
   );
   return false;
 }
@@ -1325,7 +1419,7 @@ function resetGameRuntimeState() {
 function logGameRestart(restart) {
   console.log(
       '[SCv] GAME_OVER -> LOBBY por RESTART ' +
-      `(gameId=${restart.gameId}, previousGameId=${restart.previousGameId}).`,
+    `(gameId=${restart.gameId}, previousGameId=${restart.previousGameId}).`,
   );
 }
 
@@ -1346,6 +1440,7 @@ function broadcastGameReset(restart) {
  */
 function forceNextRound() {
   if (!canForceNextRound()) return;
+  clearRoundTimeout();
   transitionSessionTo(
       SessionState.BETWEEN_ROUNDS, 'avance forzado por operador',
   );
@@ -1423,7 +1518,7 @@ function logServerStarted() {
   console.log(`[*] Servidor web corriendo en http://localhost:${SERVER_PORT}`);
   console.log(
       '[*] Esperando la hora de inicio ' +
-      `(${startTime.toLocaleTimeString()}) para disparar la primera ronda...`,
+    `(${startTime.toLocaleTimeString()}) para disparar la primera ronda...`,
   );
 }
 
@@ -1479,6 +1574,7 @@ function resetDeterministicState() {
   currentRound = 0;
   maxRounds = TEST_ROUNDS;
   delayNextRound = 0;
+  roundTimeoutSeconds = TEST_ROUND_TIMEOUT_SECONDS;
   gameStarted = false;
   gameFinished = false;
   startTime = new Date(Date.now() + TEST_START_DELAY_MS);
@@ -1487,11 +1583,11 @@ function resetDeterministicState() {
 function logDeterministicMode() {
   console.log(
       `[TEST] Modo ALT-02 activo: rounds=${TEST_ROUNDS}, ` +
-      `answer="${TEST_SONG_TITLE}", port=${SERVER_PORT}.`,
+    `answer="${TEST_SONG_TITLE}", port=${SERVER_PORT}.`,
   );
   console.log(
       `[TEST] Inicio automático en ${TEST_START_DELAY_MS} ms; ` +
-      'iTunes y configuración interactiva deshabilitados.',
+    'iTunes y configuración interactiva deshabilitados.',
   );
   logTestQueueDelay();
 }
@@ -1500,8 +1596,8 @@ function logTestQueueDelay() {
   if (TEST_QUEUE_DRAIN_DELAY_MS <= 0) return;
   console.log(
       '[TEST] Drenaje de AnswerQueue demorado ' +
-      `${TEST_QUEUE_DRAIN_DELAY_MS} ms para ejercitar ` +
-      'colisiones controladas.',
+    `${TEST_QUEUE_DRAIN_DELAY_MS} ms para ejercitar ` +
+    'colisiones controladas.',
   );
 }
 

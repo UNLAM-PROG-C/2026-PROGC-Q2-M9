@@ -26,6 +26,7 @@ class GameCoordinator {
     this.normalizeText = options.normalizeText;
     this.getRoundContext = options.getRoundContext;
     this.getMaxWrongAttempts = options.getMaxWrongAttempts;
+    this.onWrongAnswerProcessed = options.onWrongAnswerProcessed;
     this.buildWinnerView = options.buildWinnerView;
     this.sendToPlayer = options.sendToPlayer;
     this.broadcast = options.broadcast;
@@ -259,6 +260,7 @@ class GameCoordinator {
     this.logWrongAnswer(answerEvent, player);
     this.notifyWrongAnswer(answerEvent, player, potentialPoints);
     this.notifyLimitIfReached(player, answerEvent.roundId);
+    this.onWrongAnswerProcessed?.();
   }
 
   notifyWrongAnswer(event, player, potentialPoints) {
