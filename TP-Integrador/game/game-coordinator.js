@@ -65,6 +65,7 @@ class GameCoordinator {
     if (this.discardInvalidEvent(answerEvent, context, sequenceLabel)) return;
     const player = this.playersById.get(answerEvent.playerId);
     if (this.discardMissingPlayer(answerEvent, player, sequenceLabel)) return;
+    if (this.discardDisconnectedPlayer(player, sequenceLabel)) return;
     if (this.discardAttemptLimit(answerEvent, player, sequenceLabel)) return;
     const correctSong = context.playlist[context.currentSongIndex];
     this.logAdjudication(answerEvent, player, sequenceLabel);
@@ -80,6 +81,15 @@ class GameCoordinator {
       `${player.playerId} agotó sus intentos.`,
     );
     this.notifyAttemptLimit(player, event.roundId);
+    return true;
+  }
+
+  discardDisconnectedPlayer(player, sequenceLabel) {
+    if (player.connected) return false;
+    this.log(
+        `[GCx] ANSWER #${sequenceLabel} descartado: ` +
+      `${player.playerId} está desconectado.`,
+    );
     return true;
   }
 

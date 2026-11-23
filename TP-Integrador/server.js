@@ -69,6 +69,14 @@ const TEST_ROUND_TIMEOUT_SECONDS = Math.max(
         10,
     ),
 );
+const TEST_HEARTBEAT_INTERVAL_MS = Math.max(
+    0,
+    Number.parseInt(
+        process.env.TRIVIA_TEST_HEARTBEAT_INTERVAL_MS || '0',
+        10,
+    ),
+);
+
 
 const DEFAULT_CONFIG_DELAY_SECONDS = 10;
 const DEFAULT_CONFIG_ROUNDS = 5;
@@ -76,6 +84,7 @@ const DEFAULT_MIN_PLAYERS = 2;
 const DEFAULT_MAX_PLAYERS = 6;
 const DEFAULT_MAX_WRONG_ATTEMPTS = 5;
 const DEFAULT_ROUND_TIMEOUT_SECONDS = 60;
+const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 10;
 const DEFAULT_START_OFFSET_MS = 60000;
 const PAST_START_DELAY_MS = 30000;
 const FORCE_NEXT_DELAY_SECONDS = 5;
@@ -259,12 +268,14 @@ function resetPlayersForNewGame() {
  * @return {!Array<!Object>} Nueva lista de vistas públicas de jugadores.
  */
 function buildLeaderboardView() {
-  return Array.from(playersById.values()).map((player) => ({
-    playerId: player.playerId,
-    displayName: player.displayName,
-    score: player.score,
-    connected: player.connected,
-  }));
+  return Array.from(playersById.values())
+      .filter((player) => player.connected)
+      .map((player) => ({
+        playerId: player.playerId,
+        displayName: player.displayName,
+        score: player.score,
+        connected: player.connected,
+      }));
 }
 
 /**
@@ -291,6 +302,7 @@ function buildWinnerView(player) {
 function getFinalWinner() {
   let winner = null;
   for (const player of playersById.values()) {
+    if (!player.connected) continue;
     if (!winner || player.score > winner.score) {
       winner = player;
     }
@@ -402,6 +414,8 @@ let minPlayers = DEFAULT_MIN_PLAYERS;
 let maxPlayers = DEFAULT_MAX_PLAYERS;
 let maxWrongAttempts = DEFAULT_MAX_WRONG_ATTEMPTS;
 let roundTimeoutSeconds = DEFAULT_ROUND_TIMEOUT_SECONDS;
+let heartbeatIntervalSeconds =
+  DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
 let startTime = null;
 let gameStarted = false;
 let gameFinished = false;
@@ -667,6 +681,14 @@ function logCurrentRoundStart() {
  */
 function loadGameConfig() {
   const config = readGameConfigFile();
+  applyGameLimits(config);
+  applyConfiguredBandUrls(config);
+  startTime = resolveConfiguredStartTime(config);
+  adjustPastStartTime();
+  printSavedConfig();
+}
+
+function applyGameLimits(config) {
   delayNextRound = config.delayNextRound ?? DEFAULT_CONFIG_DELAY_SECONDS;
   maxRounds = config.maxRounds ?? DEFAULT_CONFIG_ROUNDS;
   minPlayers = config.minPlayers ?? DEFAULT_MIN_PLAYERS;
@@ -675,10 +697,9 @@ function loadGameConfig() {
     config.maxWrongAttempts ?? DEFAULT_MAX_WRONG_ATTEMPTS;
   roundTimeoutSeconds =
     config.roundTimeoutSeconds ?? DEFAULT_ROUND_TIMEOUT_SECONDS;
-  applyConfiguredBandUrls(config);
-  startTime = resolveConfiguredStartTime(config);
-  adjustPastStartTime();
-  printSavedConfig();
+  heartbeatIntervalSeconds =
+    config.heartbeatIntervalSeconds ??
+    DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
 }
 
 function readGameConfigFile() {
@@ -997,7 +1018,7 @@ function allEligiblePlayersExhausted() {
     eligible.every((player) => player.attempts >= maxWrongAttempts);
 }
 
-function handleWrongAnswerProcessed() {
+function maybeEndRoundByAttempts() {
   if (!allEligiblePlayersExhausted()) return;
   endRoundWithoutWinner('ATTEMPTS_EXHAUSTED');
 }
@@ -1047,7 +1068,7 @@ const gameCoordinator = new GameCoordinator({
   normalizeText,
   getRoundContext,
   getMaxWrongAttempts: () => maxWrongAttempts,
-  onWrongAnswerProcessed: handleWrongAnswerProcessed,
+  onWrongAnswerProcessed: maybeEndRoundByAttempts,
   buildWinnerView,
   sendToPlayer,
   broadcast,
@@ -1067,8 +1088,40 @@ wss.on('connection', (ws) => handleConnection(ws));
 
 function handleConnection(ws) {
   const context = {username: '', playerId: null};
+  initializeHeartbeat(ws);
   ws.on('message', (message) => handleSocketMessage(ws, context, message));
   ws.on('close', () => handleSocketClose(ws, context));
+}
+
+function initializeHeartbeat(ws) {
+  ws.isAlive = true;
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
+}
+
+function getHeartbeatIntervalMs() {
+  if (TEST_MODE && TEST_HEARTBEAT_INTERVAL_MS > 0) {
+    return TEST_HEARTBEAT_INTERVAL_MS;
+  }
+  return heartbeatIntervalSeconds * MILLISECONDS_PER_SECOND;
+}
+
+function checkHeartbeat(client) {
+  if (client.isAlive === false) {
+    client.terminate();
+    return;
+  }
+  client.isAlive = false;
+  client.ping();
+}
+
+function runHeartbeatCheck() {
+  wss.clients.forEach(checkHeartbeat);
+}
+
+function startHeartbeatMonitor() {
+  setInterval(runHeartbeatCheck, getHeartbeatIntervalMs());
 }
 
 function handleSocketMessage(ws, context, message) {
@@ -1288,9 +1341,11 @@ function handleSocketClose(ws, context) {
   const player = markPlayerDisconnected(ws);
   if (player) disconnectRegisteredPlayer(player);
   else console.log(`[-] Usuario desconectado: ${context.username}`);
+  const aborted = maybeAbortEmptyGame();
+  if (!aborted) maybeEndRoundByAttempts();
   broadcastLeaderboard();
   broadcastSessionState();
-  maybeStartAfterDisconnect();
+  if (!aborted) maybeStartAfterDisconnect();
 }
 
 function disconnectRegisteredPlayer(player) {
@@ -1306,6 +1361,42 @@ function maybeStartAfterDisconnect() {
   if (TEST_MODE || !lobby || Date.now() < startTime.getTime()) return;
   startGameFromLobby(
       'inicio desde LOBBY tras desconexión que satisface barrera READY',
+  );
+}
+
+function shouldAbortEmptyGame() {
+  if (getConnectedPlayerIds().length > 0) return false;
+  return isActiveSessionState(sessionCoordinator.getState());
+}
+
+function maybeAbortEmptyGame() {
+  if (!shouldAbortEmptyGame()) return false;
+  abortEmptyGame();
+  return true;
+}
+
+function abortEmptyGame() {
+  clearRoundTimeout();
+  clearTransitionTimeout();
+  answerQueue.clear();
+  transitionSessionTo(
+      SessionState.GAME_OVER,
+      'partida abortada sin jugadores conectados',
+  );
+  restartAbortedGame();
+}
+
+function restartAbortedGame() {
+  const restart = sessionCoordinator.restartSession();
+  resetAudioForRestart(restart);
+  resetGameRuntimeState();
+  logAbortedGame(restart);
+}
+
+function logAbortedGame(restart) {
+  console.log(
+      '[SC] Partida abortada por abandono total. ' +
+    `gameId ${restart.previousGameId} -> ${restart.gameId}.`,
   );
 }
 
@@ -1510,6 +1601,7 @@ function isGameLimitReached() {
 function startServerAndGameLoop() {
   if (!TEST_MODE) setupConsoleCommands();
   server.listen(SERVER_PORT, logServerStarted);
+  startHeartbeatMonitor();
   const interval = TEST_MODE ? TEST_LOOP_INTERVAL_MS : NORMAL_LOOP_INTERVAL_MS;
   const timer = setInterval(() => checkScheduledStart(timer), interval);
 }

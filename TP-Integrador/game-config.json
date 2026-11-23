@@ -3,6 +3,7 @@
   "startDelaySeconds": 60,
   "delayNextRound": 10,
   "roundTimeoutSeconds": 60,
+  "heartbeatIntervalSeconds": 10,
   "maxRounds": 5,
   "minPlayers": 2,
   "maxPlayers": 6,
