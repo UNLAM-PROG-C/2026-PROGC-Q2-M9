@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
+    "test": "node tests/e2e/regression-suite-runner.js full",
+    "test:playlist": "node --test tests/itunes-playlist-test.js",
     "test:alt02": "node tests/alt02-concurrent-answers.js",
     "test:alt02:matrix": "node tests/alt02-matrix.js",
     "test:c05": "node tests/audio-model-test.js",
@@ -30,6 +32,14 @@
     "test:c20": "node --test tests/audio-protocol-test.js",
     "test:c21": "node --test tests/frontend-audio-mode-test.js",
     "test:score-display": "node --test tests/frontend-score-display-test.js",
+    "test:attempt-limit": "node --test tests/game-attempt-limit-test.js",
+    "test:round-timeout": "node --test tests/e2e/e2e-round-timeout-test.js",
+    "test:attempts-exhausted": "node --test tests/e2e/e2e-attempts-exhausted-test.js",
+    "test:disconnect-handling": "node --test tests/e2e/e2e-disconnect-handling-test.js",
+    "test:empty-game-abort": "node --test tests/e2e/e2e-empty-game-abort-test.js",
+    "test:heartbeat": "node --test tests/e2e/e2e-heartbeat-test.js",
+    "test:ready-timeout": "node --test tests/e2e/e2e-ready-timeout-test.js",
+    "test:auto-restart": "node --test tests/e2e/e2e-auto-restart-test.js",
     "test:c24": "node --test tests/concurrency-audio/pool-queue-buffer-concurrency-test.js",
     "test:e2e:c22": "node tests/e2e/e2e-normal-altered-rounds-test.js",
     "test:e2e:c23": "node tests/e2e/e2e-late-join-restart-test.js",
@@ -37,7 +47,8 @@
     "test:c26:regression": "node tests/e2e/v3-full-regression-test.js",
     "test:regression:core": "node tests/e2e/regression-suite-runner.js core",
     "test:regression:env": "node tests/e2e/regression-suite-runner.js env",
-    "test:regression:full": "node tests/e2e/regression-suite-runner.js full"
+    "test:regression:full": "node tests/e2e/regression-suite-runner.js full",
+    "test:regression:functional": "node tests/e2e/regression-suite-runner.js functional"
   },
   "dependencies": {
     "express": "^4.19.2",

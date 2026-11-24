@@ -25,6 +25,8 @@ class GameCoordinator {
     this.playersById = options.playersById;
     this.normalizeText = options.normalizeText;
     this.getRoundContext = options.getRoundContext;
+    this.getMaxWrongAttempts = options.getMaxWrongAttempts;
+    this.onWrongAnswerProcessed = options.onWrongAnswerProcessed;
     this.buildWinnerView = options.buildWinnerView;
     this.sendToPlayer = options.sendToPlayer;
     this.broadcast = options.broadcast;
@@ -63,11 +65,41 @@ class GameCoordinator {
     if (this.discardInvalidEvent(answerEvent, context, sequenceLabel)) return;
     const player = this.playersById.get(answerEvent.playerId);
     if (this.discardMissingPlayer(answerEvent, player, sequenceLabel)) return;
+    if (this.discardDisconnectedPlayer(player, sequenceLabel)) return;
+    if (this.discardAttemptLimit(answerEvent, player, sequenceLabel)) return;
     const correctSong = context.playlist[context.currentSongIndex];
     this.logAdjudication(answerEvent, player, sequenceLabel);
     if (this.isCorrectAnswer(answerEvent.answer, correctSong)) {
       this.handleCorrectAnswer(answerEvent, player, correctSong, context);
     } else this.handleWrongAnswer(answerEvent, player);
+  }
+
+  discardAttemptLimit(event, player, sequenceLabel) {
+    if (player.attempts < this.getMaxWrongAttempts()) return false;
+    this.log(
+        `[GCx] ANSWER #${sequenceLabel} descartado: ` +
+      `${player.playerId} agotó sus intentos.`,
+    );
+    this.notifyAttemptLimit(player, event.roundId);
+    return true;
+  }
+
+  discardDisconnectedPlayer(player, sequenceLabel) {
+    if (player.connected) return false;
+    this.log(
+        `[GCx] ANSWER #${sequenceLabel} descartado: ` +
+      `${player.playerId} está desconectado.`,
+    );
+    return true;
+  }
+
+  notifyAttemptLimit(player, roundId) {
+    this.sendToPlayer(player.playerId, {
+      type: 'ANSWER_REJECTED',
+      reason: 'ATTEMPT_LIMIT_REACHED',
+      roundId,
+      maxWrongAttempts: this.getMaxWrongAttempts(),
+    });
   }
 
   /** @param {number} sequence Secuencia de recepción. @return {string} */
@@ -236,9 +268,22 @@ class GameCoordinator {
         BASE_SCORE - (priorAttempts * ATTEMPT_PENALTY),
     );
     this.logWrongAnswer(answerEvent, player);
+    this.notifyWrongAnswer(answerEvent, player, potentialPoints);
+    this.notifyLimitIfReached(player, answerEvent.roundId);
+    this.onWrongAnswerProcessed?.();
+  }
+
+  notifyWrongAnswer(event, player, potentialPoints) {
     this.sendToPlayer(player.playerId, {
-      type: 'WRONG_ANSWER', guess: answerEvent.answer, potentialPoints,
+      type: 'WRONG_ANSWER',
+      guess: event.answer,
+      potentialPoints,
     });
+  }
+
+  notifyLimitIfReached(player, roundId) {
+    if (player.attempts < this.getMaxWrongAttempts()) return;
+    this.notifyAttemptLimit(player, roundId);
   }
 
   /** Registra una respuesta incorrecta. */

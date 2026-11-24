@@ -23,6 +23,7 @@ const MIN_ROUNDS_SEEN = 1;
 const MIN_ADJUDICATIONS = 1;
 const PARITY_DIVISOR = 2;
 const FIRST_ROUND = 1;
+const EXPECTED_TEST_ARTIST = 'ALT-02 Test Harness';
 
 const PORT = Number.parseInt(process.env.C22_PORT || String(DEFAULT_PORT), 10);
 const ROUNDS = Number.parseInt(
@@ -192,24 +193,36 @@ function assertAdjudications(adjudicatedRounds) {
   );
 }
 
-function assertScenarioResult(state, p1, p2) {
-  assert.equal(state.queueErrors.length, ZERO_COUNT, 'Sin errores de cola');
+function assertRoundsSeen(p1, p2) {
   assert.ok(p1.roundsSeen.length >= MIN_ROUNDS_SEEN, 'Jugador-1 ve rondas');
   assert.ok(p2.roundsSeen.length >= MIN_ROUNDS_SEEN, 'Jugador-2 ve rondas');
+}
+
+function assertAudioReferences(player) {
   assert.ok(
-      p1.roundsSeen.every((item) => item.hasAudioRef),
+      player.roundsSeen.every((item) => item.hasAudioRef),
       'Rondas con referencia de audio',
   );
+}
+
+function assertExpectedArtist(player) {
   assert.ok(
-      p1.roundsSeen.every((item) => item.artist === 'ALT-02 Test Harness') &&
-      p2.roundsSeen.every((item) => item.artist === 'ALT-02 Test Harness'),
-      'Ambos jugadores reciben el artista de cada ronda',
+      player.roundsSeen.every(
+          (item) => item.artist === EXPECTED_TEST_ARTIST,
+      ),
+      `${player.name} recibe el artista de cada ronda`,
   );
+}
+
+function assertScenarioResult(state, p1, p2) {
+  assert.equal(state.queueErrors.length, ZERO_COUNT, 'Sin errores de cola');
+  assertRoundsSeen(p1, p2);
+  assertAudioReferences(p1);
+  assertAudioReferences(p2);
+  assertExpectedArtist(p1);
+  assertExpectedArtist(p2);
   assertAdjudications(state.adjudicatedRounds);
-  assert.ok(
-      p1.gameOver || p2.gameOver,
-      'Ciclo completo con llegada a GAME_OVER',
-  );
+  assert.ok(p1.gameOver || p2.gameOver, 'Ciclo completo con GAME_OVER');
 }
 
 function createScenarioState() {

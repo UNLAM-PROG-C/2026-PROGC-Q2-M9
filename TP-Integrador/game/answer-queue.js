@@ -51,6 +51,10 @@ class AnswerQueue {
     return this.items.length === 0;
   }
 
+  clear() {
+    this.items.length = 0;
+  }
+
   /**
    * @return {number} Cantidad actual de eventos pendientes (no acumulada).
    */

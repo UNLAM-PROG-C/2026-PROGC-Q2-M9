@@ -24,9 +24,8 @@ const START_DELAY_MS = Number.parseInt(
     process.env.ALT02_START_DELAY_MS || '1200', 10,
 );
 const TIMEOUT_MS = Number.parseInt(process.env.ALT02_TIMEOUT_MS || '30000', 10);
-const QUEUE_DRAIN_DELAY_MS = Number.parseInt(
-    process.env.ALT02_QUEUE_DRAIN_DELAY_MS || '10', 10,
-);
+const QUEUE_DRAIN_DELAY_MS =
+  Number.parseInt(process.env.ALT02_QUEUE_DRAIN_DELAY_MS || '50', 10);
 const SETTLE_MS = Math.max(
     0, Number.parseInt(process.env.ALT02_SETTLE_MS || '100', 10),
 );

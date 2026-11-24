@@ -5,22 +5,22 @@
     <title>Trivia Musical - Concurrente</title>
     <style>
         * { box-sizing: border-box; }
-        body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            background: #121212; 
-            color: #fff; 
-            margin: 0; 
-            padding: 20px; 
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #121212;
+            color: #fff;
+            margin: 0;
+            padding: 20px;
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
         }
-        
-        #login-box { 
-            background: #1e1e1e; 
-            padding: 40px; 
-            border-radius: 12px; 
+
+        #login-box {
+            background: #1e1e1e;
+            padding: 40px;
+            border-radius: 12px;
             box-shadow: 0 8px 24px rgba(0,0,0,0.5);
             width: 400px;
             text-align: center;
@@ -35,7 +35,19 @@
             width: 450px;
             text-align: center;
         }
+        #final-results {
+            display: none;
+            margin: 18px 0;
+            padding: 14px;
+            background: #181818;
+            border: 1px solid #333;
+            border-radius: 8px;
+            text-align: left;
+        }
 
+        #final-results h3 {
+            text-align: center;
+        }
         #ready-panel {
             margin: 18px 0 8px 0;
             padding: 14px;
@@ -86,43 +98,43 @@
         }
 
         h2, h3, h4 { margin-top: 0; color: #1db954; font-size: 16px; }
-        
-        input { 
-            padding: 12px; 
-            margin: 10px 0 5px 0; 
-            width: 100%; 
-            border-radius: 6px; 
-            border: 1px solid #444; 
-            background: #2a2a2a; 
-            color: white; 
+
+        input {
+            padding: 12px;
+            margin: 10px 0 5px 0;
+            width: 100%;
+            border-radius: 6px;
+            border: 1px solid #444;
+            background: #2a2a2a;
+            color: white;
             font-size: 14px;
         }
-        
-        button { 
-            padding: 10px; 
-            margin: 5px 0; 
-            width: 100%; 
-            border-radius: 6px; 
-            border: none; 
-            font-weight: bold; 
-            cursor: pointer; 
+
+        button {
+            padding: 10px;
+            margin: 5px 0;
+            width: 100%;
+            border-radius: 6px;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
             font-size: 14px;
             transition: background 0.2s;
         }
-        
+
         .btn-primary { background: #1db954; color: white; }
         .btn-primary:hover { background: #1aa34a; }
-        
+
         .btn-danger { background: #e74c3c; color: white; margin-top: 10px; }
         .btn-danger:hover { background: #c0392b; }
 
         audio { width: 100%; margin: 15px 0; border-radius: 8px; }
 
-        .scrollable-box { 
-            text-align: left; 
-            background: #1a1a1a; 
-            padding: 12px; 
-            border-radius: 8px; 
+        .scrollable-box {
+            text-align: left;
+            background: #1a1a1a;
+            padding: 12px;
+            border-radius: 8px;
             flex-grow: 1;
             overflow-y: auto;
             max-height: 350px;
@@ -255,89 +267,95 @@
 </head>
 <body>
 
-    <!-- LOGIN -->
-    <div id="login-box">
-        <h2>🎵 Trivia Musical</h2>
-        <p style="color: #aaa; font-size: 13px; margin-bottom: 5px;">Programación Concurrente - UNLaM</p>
-        <p style="color: #777; font-size: 11px; margin-bottom: 20px;">Grupo M9 - Trabajo práctico integrador</p>
-        <input type="text" id="username" placeholder="Tu nombre de usuario...">
-        <button class="btn-primary" onclick="joinGame()">Ingresar a la Sala</button>
+<!-- LOGIN -->
+<div id="login-box">
+    <h2>🎵 Trivia Musical</h2>
+    <p style="color: #aaa; font-size: 13px; margin-bottom: 5px;">Programación Concurrente - UNLaM</p>
+    <p style="color: #777; font-size: 11px; margin-bottom: 20px;">Grupo M9 - Trabajo práctico integrador</p>
+    <input type="text" id="username" placeholder="Tu nombre de usuario...">
+    <button class="btn-primary" onclick="joinGame()">Ingresar a la Sala</button>
+</div>
+
+<!-- PANTALLA DE ESPERA -->
+<div id="waiting-box">
+    <h2>⏳ Sala de Espera</h2>
+    <p id="waiting-msg" style="color: #aaa; font-size: 14px; margin: 20px 0;">Esperando que el servidor dispare la partida...</p>
+    <div id="countdown" style="font-size: 24px; color: #1db954; font-weight: bold; margin-bottom: 20px;">--:--</div>
+    <div id="final-results">
+        <h3>🏆 Resultado final</h3>
+        <ul id="final-score-list"></ul>
+    </div>
+    <div id="ready-panel">
+        <div id="ready-summary">Listos: 0 / 0</div>
+        <p id="ready-detail">Marcá que estás listo para habilitar el inicio de la partida.</p>
+        <button id="ready-button" class="btn-primary" onclick="toggleReady()">Estoy listo</button>
+    </div>
+    <button class="btn-danger" onclick="leaveGame()">Desconectarse</button>
+</div>
+
+<!-- JUEGO EN 3 COLUMNAS -->
+<div id="game-container">
+
+    <!-- CARTEL GIGANTE DE CUENTA REGRESIVA (Sincronización de hilos) -->
+    <div id="sync-overlay">
+        <h1>Próxima ronda en:</h1>
+        <div id="sync-number">5</div>
     </div>
 
-    <!-- PANTALLA DE ESPERA -->
-    <div id="waiting-box">
-        <h2>⏳ Sala de Espera</h2>
-        <p id="waiting-msg" style="color: #aaa; font-size: 14px; margin: 20px 0;">Esperando que el servidor dispare la partida...</p>
-        <div id="countdown" style="font-size: 24px; color: #1db954; font-weight: bold; margin-bottom: 20px;">--:--</div>
-        <div id="ready-panel">
-            <div id="ready-summary">Listos: 0 / 0</div>
-            <p id="ready-detail">Marcá que estás listo para habilitar el inicio de la partida.</p>
-            <button id="ready-button" class="btn-primary" onclick="toggleReady()">Estoy listo</button>
+    <!-- COLUMNA 1 -->
+    <div class="column">
+        <div>
+            <h3 id="round-title">Adivina la Canción</h3>
+            <p id="song-artist" style="color: #1db954; font-size: 12px; margin: 0 0 8px 0; font-weight: bold;"></p>
+            <div id="audio-mode-badge"></div>
+            <div id="status">Conectando...</div>
+            <audio id="audio-player" controls style="display:none;"></audio>
         </div>
-        <button class="btn-danger" onclick="leaveGame()">Desconectarse</button>
+
+        <div id="suggestions-container">
+            <div id="suggestions-list"></div>
+            <div id="potential-points">Potenciales puntos: 100 pts</div>
+            <input type="text" id="answer" placeholder="Escribí el nombre de la canción..." autocomplete="off" oninput="handleInput()" onkeydown="if(event.key === 'Enter') { sendAnswer(); }">
+            <button id="answer-button" class="btn-primary" onclick="sendAnswer();">
+                Enviar Respuesta
+            </button>
+            <button class="btn-danger" onclick="leaveGame()">Desconectarse</button>
+        </div>
     </div>
 
-    <!-- JUEGO EN 3 COLUMNAS -->
-    <div id="game-container">
-        
-        <!-- CARTEL GIGANTE DE CUENTA REGRESIVA (Sincronización de hilos) -->
-        <div id="sync-overlay">
-            <h1>Próxima ronda en:</h1>
-            <div id="sync-number">5</div>
-        </div>
-
-        <!-- COLUMNA 1 -->
-        <div class="column">
-            <div>
-                <h3 id="round-title">Adivina la Canción</h3>
-                <p id="song-artist" style="color: #1db954; font-size: 12px; margin: 0 0 8px 0; font-weight: bold;"></p>
-                <div id="audio-mode-badge"></div>
-                <div id="status">Conectando...</div>
-                <audio id="audio-player" controls style="display:none;"></audio>
-            </div>
-            
-            <div id="suggestions-container">
-                <div id="suggestions-list"></div>
-                <div id="potential-points">Potenciales puntos: 100 pts</div>
-                <input type="text" id="answer" placeholder="Escribí el nombre de la canción..." autocomplete="off" oninput="handleInput()" onkeydown="if(event.key === 'Enter') { sendAnswer(); }">
-                <button class="btn-primary" onclick="sendAnswer();">Enviar Respuesta</button>
-                <button class="btn-danger" onclick="leaveGame()">Desconectarse</button>
+    <!-- COLUMNA 2: Mis Intentos -->
+    <div class="column">
+        <div>
+            <h4>📝 Mis Intentos</h4>
+            <div class="scrollable-box" id="attempts-box">
+                <ul id="attempts-list">
+                    <li style="color: #777; justify-content: center;">Sin intentos aún</li>
+                </ul>
             </div>
         </div>
-
-        <!-- COLUMNA 2: Mis Intentos -->
-        <div class="column">
-            <div>
-                <h4>📝 Mis Intentos</h4>
-                <div class="scrollable-box" id="attempts-box">
-                    <ul id="attempts-list">
-                        <li style="color: #777; justify-content: center;">Sin intentos aún</li>
-                    </ul>
-                </div>
-            </div>
-            <div style="font-size: 11px; color: #888; text-align: center; margin-top: 10px;">
-                Cada intento equivocado descontará 5 puntos
-            </div>
+        <div style="font-size: 11px; color: #888; text-align: center; margin-top: 10px;">
+            Máximo 5 intentos incorrectos por ronda. Cada error descuenta 5 puntos.
         </div>
-
-        <!-- COLUMNA 3: Tabla de Posiciones -->
-        <div class="column">
-            <div>
-                <h4>🏆 Tabla de Posiciones</h4>
-                <div class="scrollable-box" id="leaderboard">
-                    <ul id="score-list">
-                        <li style="color: #777; justify-content: center;">Esperando jugadores...</li>
-                    </ul>
-                </div>
-            </div>
-            <div style="font-size: 11px; color: #666; text-align: center; margin-top: 10px;">
-                Sala Activa
-            </div>
-        </div>
-
     </div>
 
-    <script>
+    <!-- COLUMNA 3: Tabla de Posiciones -->
+    <div class="column">
+        <div>
+            <h4>🏆 Tabla de Posiciones</h4>
+            <div class="scrollable-box" id="leaderboard">
+                <ul id="score-list">
+                    <li style="color: #777; justify-content: center;">Esperando jugadores...</li>
+                </ul>
+            </div>
+        </div>
+        <div style="font-size: 11px; color: #666; text-align: center; margin-top: 10px;">
+            Sala Activa
+        </div>
+    </div>
+
+</div>
+
+<script>
 /**
  * @fileoverview Cliente web: estado local, protocolo WebSocket y presentación.
  * El servidor decide la elegibilidad, los ganadores y el inicio de rondas.
@@ -380,9 +398,9 @@ function resolveRoundAudioSrc(data) {
 }
 
 /**
- * Actualiza el indicador visual del modo de audio de la ronda actual.
- * @param {string=} mode Modo informado por el servidor (default NORMAL).
- */
+     * Actualiza el indicador visual del modo de audio de la ronda actual.
+     * @param {string=} mode Modo informado por el servidor (default NORMAL).
+     */
 function updateAudioModeBadge(mode) {
   const badge = document.getElementById('audio-mode-badge');
   const meta = AUDIO_MODE_META[mode] || AUDIO_MODE_META.NORMAL;
@@ -392,8 +410,8 @@ function updateAudioModeBadge(mode) {
 }
 
 /**
- * Oculta y limpia el indicador visual de modo fuera de ronda activa.
- */
+     * Oculta y limpia el indicador visual de modo fuera de ronda activa.
+     */
 function resetAudioModeBadge() {
   const badge = document.getElementById('audio-mode-badge');
   badge.innerText = '';
@@ -402,10 +420,10 @@ function resetAudioModeBadge() {
 }
 
 /**
- * Normaliza las búsquedas de títulos para el autocompletado.
- * @param {string} text Texto de búsqueda o título.
- * @return {string} Texto en minúsculas sin marcas diacríticas indicadas.
- */
+     * Normaliza las búsquedas de títulos para el autocompletado.
+     * @param {string} text Texto de búsqueda o título.
+     * @return {string} Texto en minúsculas sin marcas diacríticas indicadas.
+     */
 function normalizeClientText(text) {
   return text.toLowerCase()
       .normalize('NFD')
@@ -414,11 +432,11 @@ function normalizeClientText(text) {
 }
 
 /**
- * Lee el nombre visible, abre un WebSocket y registra sus handlers.
- * Envía JOIN al abrir la conexión. Los mensajes del servidor actualizan
- * identidad, READY, rondas, intentos, puntajes y reproducción de audio.
- * No confirma el instante efectivo en que empieza a sonar cada preview.
- */
+     * Lee el nombre visible, abre un WebSocket y registra sus handlers.
+     * Envía JOIN al abrir la conexión. Los mensajes del servidor actualizan
+     * identidad, READY, rondas, intentos, puntajes y reproducción de audio.
+     * No confirma el instante efectivo en que empieza a sonar cada preview.
+     */
 function joinGame() {
   myUsername = document.getElementById('username').value.trim();
   if (!myUsername) return alert('Por favor ingresá un nombre.');
@@ -444,12 +462,24 @@ function handlePlayerRegistered(data) {
   myUsername = data.displayName || myUsername;
 }
 
+function handleJoinRejected(data) {
+  if (data.reason === 'ROOM_FULL') {
+    alert(`La sala está completa. Máximo ${data.maxPlayers} jugadores.`);
+  } else {
+    alert('No fue posible ingresar a la partida.');
+  }
+  if (ws) {
+    ws.close();
+  }
+}
+
 function handleWaitingStart(data) {
+  hideFinalResults();
   songTitles = data.titles || [];
   document.getElementById('waiting-box').style.display = 'block';
   document.getElementById('waiting-msg').innerText =
-    `La partida está programada para las ${data.startTime}. ` +
-    'También deben estar listos todos los jugadores conectados.';
+            `La partida está programada para las ${data.startTime}. ` +
+            'También deben estar listos todos los jugadores conectados.';
   document.getElementById('ready-panel').style.display = 'block';
   startCountdown(data.secondsLeft);
 }
@@ -460,8 +490,8 @@ function handleWaitingNextRound(data) {
   setGameWaitingVisibility(false);
   document.getElementById('ready-panel').style.display = 'none';
   document.getElementById('waiting-msg').innerText =
-    `La ronda ${data.currentRound} ya está en curso. ` +
-    `Vas a ingresar desde la ronda ${data.eligibleFromRound}.`;
+            `La ronda ${data.currentRound} ya está en curso. ` +
+            `Vas a ingresar desde la ronda ${data.eligibleFromRound}.`;
   document.getElementById('countdown').innerText = 'Esperando próxima ronda';
 }
 
@@ -480,7 +510,7 @@ function handleRoundStart(data) {
 function updateSongArtist(artist) {
   const name = typeof artist === 'string' ? artist.trim() : '';
   document.getElementById('song-artist').textContent =
-    name ? `Hoy jugamos con: ${name}` : '';
+            name ? `Hoy jugamos con: ${name}` : '';
 }
 
 function showActiveRound() {
@@ -493,7 +523,7 @@ function showActiveRound() {
 function updateRoundHeader(data) {
   const roundNumber = data.roundId || data.round;
   document.getElementById('round-title').innerText =
-    `Adivina la Canción (Ronda ${roundNumber}/${data.maxRounds})`;
+            `Adivina la Canción (Ronda ${roundNumber}/${data.maxRounds})`;
 }
 
 function playRoundAudio(data) {
@@ -511,32 +541,102 @@ function handleRoundWinner(data) {
   );
 }
 
+function handleRoundEnded(data) {
+  document.getElementById('audio-player').pause();
+  setAnswerControlsDisabled(true);
+  document.getElementById('status').innerText =
+            buildRoundEndedMessage(data);
+}
+
+function buildRoundEndedMessage(data) {
+  const reasons = {
+    TIMEOUT: 'Se agotó el tiempo.',
+    ATTEMPTS_EXHAUSTED: 'Todos agotaron sus intentos.',
+  };
+  const reason = reasons[data.reason] ||
+            'La ronda terminó sin ganador.';
+  return `${reason} Era: "${data.songTitle}". ` +
+            `Siguiente ronda en ${data.delay}s...`;
+}
+
 function handleGameOver(data) {
   clearClientIntervals();
   document.getElementById('audio-player').pause();
   setGameWaitingVisibility(false);
   document.getElementById('ready-panel').style.display = 'none';
+  showFinalResults(data);
+  startGameOverCountdown(data.restartInSeconds);
+}
+
+function showFinalResults(data) {
   const winnerName = data.winner?.displayName || 'Nadie';
   document.getElementById('waiting-msg').innerHTML =
-    `El ganador es: ${winnerName}<br><br><b>FELICITACIONES!!!</b><br><br>` +
-    'Esperando RESTART del operador para una nueva partida.';
-  document.getElementById('countdown').innerText = '🏁 FIN';
+        `Ganador: <b>${winnerName}</b><br><br>` +
+        'La próxima partida comenzará automáticamente.';
+  renderFinalLeaderboard(data.leaderboard || []);
+  document.getElementById('final-results').style.display = 'block';
+}
+
+function renderFinalLeaderboard(leaderboard) {
+  const list = document.getElementById('final-score-list');
+  list.innerHTML = '';
+  if (leaderboard.length === 0) {
+    showEmptyLeaderboard(list);
+    return;
+  }
+  const sorted = [...leaderboard].sort((a, b) => b.score - a.score);
+  sorted.forEach((player) => appendLeaderboardPlayer(list, player));
+}
+
+function startGameOverCountdown(seconds) {
+  if (countdownInterval) clearInterval(countdownInterval);
+  const state = {remaining: Math.max(0, Number(seconds) || 0)};
+  updateGameOverCountdown(state);
+  countdownInterval = setInterval(
+      () => updateGameOverCountdown(state),
+      MILLISECONDS_PER_SECOND,
+  );
+}
+
+function updateGameOverCountdown(state) {
+  if (state.remaining <= 0) {
+    clearInterval(countdownInterval);
+    document.getElementById('countdown').innerText = 'Reiniciando...';
+    return;
+  }
+  document.getElementById('countdown').innerText =
+        `Nueva partida en ${state.remaining} s`;
+  state.remaining -= 1;
+}
+
+function hideFinalResults() {
+  document.getElementById('final-results').style.display = 'none';
+  document.getElementById('final-score-list').innerHTML = '';
 }
 
 function handleGameReset(data) {
   clearClientIntervals();
+  hideFinalResults();
   resetAudioPlayer();
+  resetReadyStateForNewGame(data);
+  setGameWaitingVisibility(false);
+  showNewGameWaitingMessage(data);
+  resetRoundState();
+  resetAudioModeBadge();
+}
+
+function resetReadyStateForNewGame(data) {
   myReady = false;
   readyActionPending = false;
   songTitles = data.titles || songTitles;
-  setGameWaitingVisibility(false);
   document.getElementById('ready-panel').style.display = 'block';
+}
+
+function showNewGameWaitingMessage(data) {
   document.getElementById('waiting-msg').innerText =
-    `Nueva partida preparada (gameId=${data.gameId}). ` +
-    'Todos deben marcar READY nuevamente.';
+        `Nueva partida preparada (gameId=${data.gameId}). ` +
+        'Todos deben marcar READY nuevamente.';
   document.getElementById('countdown').innerText = 'Esperando READY';
-  resetRoundState();
-  resetAudioModeBadge();
 }
 
 function resetAudioPlayer() {
@@ -550,9 +650,9 @@ function resetAudioPlayer() {
 function setGameWaitingVisibility(showGame) {
   document.getElementById('sync-overlay').style.display = 'none';
   document.getElementById('game-container').style.display =
-    showGame ? 'grid' : 'none';
+            showGame ? 'grid' : 'none';
   document.getElementById('waiting-box').style.display =
-    showGame ? 'none' : 'block';
+            showGame ? 'none' : 'block';
 }
 
 function clearClientIntervals() {
@@ -572,7 +672,7 @@ function handleWrongAnswer(data) {
   const penalty = data.potentialPoints - currentPotentialPoints;
   addAttempt(data.guess, false, penalty);
   document.getElementById('potential-points').innerText =
-    `Potenciales puntos: ${currentPotentialPoints} pts`;
+            `Potenciales puntos: ${currentPotentialPoints} pts`;
 }
 
 function handleAnswerRejected(data) {
@@ -581,14 +681,33 @@ function handleAnswerRejected(data) {
   }
   if (data.reason === 'SESSION_NOT_ACTIVE') {
     document.getElementById('status').innerText =
-      `Respuesta rechazada: la sesión está en estado ${data.sessionState}.`;
+                'Respuesta rechazada: la sesión está en estado ' +
+                `${data.sessionState}.`;
   }
+
+  if (data.reason === 'ATTEMPT_LIMIT_REACHED') {
+    showAttemptLimitReached(data);
+  }
+}
+
+function setAnswerControlsDisabled(disabled) {
+  document.getElementById('answer').disabled = disabled;
+  document.getElementById('answer-button').disabled = disabled;
+}
+
+function showAttemptLimitReached(data) {
+  document.getElementById('status').innerText =
+            `Alcanzaste el máximo de ${data.maxWrongAttempts} ` +
+            'intentos incorrectos.';
+  document.getElementById('potential-points').innerText =
+            'Sin intentos disponibles en esta ronda.';
+  setAnswerControlsDisabled(true);
 }
 
 function showEligibilityRejection(data) {
   document.getElementById('waiting-msg').innerText =
-    `Todavía no participás de la ronda ${data.currentRound}. ` +
-    `Vas a ingresar desde la ronda ${data.eligibleFromRound}.`;
+            `Todavía no participás de la ronda ${data.currentRound}. ` +
+            `Vas a ingresar desde la ronda ${data.eligibleFromRound}.`;
 }
 
 function handleLeaderboard(data) {
@@ -605,23 +724,27 @@ function handleLeaderboard(data) {
 
 function showEmptyLeaderboard(list) {
   list.innerHTML =
-    '<li style="color: #777; justify-content: center;">' +
-    'No hay jugadores.</li>';
+            '<li style="color: #777; justify-content: center;">' +
+            'No hay jugadores.</li>';
 }
 
 function appendLeaderboardPlayer(list, player) {
   const item = document.createElement('li');
   item.dataset.playerId = player.playerId;
   item.innerHTML = `<span>${player.displayName}</span> ` +
-    `<strong>${player.score} pts</strong>`;
+            `<strong>${player.score} pts</strong>`;
   list.appendChild(item);
 }
 
 const SERVER_MESSAGE_HANDLERS = {
   PLAYER_REGISTERED: handlePlayerRegistered,
+  JOIN_REJECTED: handleJoinRejected,
   SESSION_STATE: updateSessionState,
+  READY_WARNING: handleReadyWarning,
+  READY_TIMEOUT: handleReadyTimeout,
   WAITING_START: handleWaitingStart,
   WAITING_NEXT_ROUND: handleWaitingNextRound,
+  ROUND_ENDED: handleRoundEnded,
   INIT_GAME: handleRoundStart,
   NEW_SONG: handleRoundStart,
   ROUND_WINNER: handleRoundWinner,
@@ -634,11 +757,11 @@ const SERVER_MESSAGE_HANDLERS = {
 };
 
 /**
- * Actualiza la vista READY a partir del estado recibido del servidor.
- * Libera el indicador de acción pendiente y deriva myReady del ID propio.
- * No inicia la partida localmente aunque canStart sea true.
- * @param {!Object} data Mensaje SESSION_STATE del servidor.
- */
+     * Actualiza la vista READY a partir del estado recibido del servidor.
+     * Libera el indicador de acción pendiente y deriva myReady del ID propio.
+     * No inicia la partida localmente aunque canStart sea true.
+     * @param {!Object} data Mensaje SESSION_STATE del servidor.
+     */
 function updateSessionState(data) {
   lastSessionState = data;
   readyActionPending = false;
@@ -653,7 +776,8 @@ function updateSessionState(data) {
 
 function updateReadySummary(data) {
   document.getElementById('ready-summary').innerText =
-    `Listos: ${data.readyCount} / ${data.connectedCount}`;
+            `Listos: ${data.readyCount}/${data.connectedCount} | ` +
+            `Jugadores: ${data.connectedCount}/${data.maxPlayers}`;
 }
 
 function updateLobbyReadyControls(data) {
@@ -667,41 +791,62 @@ function updateLobbyReadyControls(data) {
 
 function updateReadyDetail(data) {
   if (data.connectedCount === 0) return showNoPlayersReadyDetail();
+  if (data.connectedCount < data.minPlayers) {
+    return showMinimumPlayersDetail(data);
+  }
   if (data.canStart) return showAllReadyDetail();
   if (myReady) return showOwnReadyDetail();
   showNotReadyDetail();
 }
 
+function showMinimumPlayersDetail(data) {
+  document.getElementById('ready-detail').innerText =
+            `Se necesitan al menos ${data.minPlayers} jugadores para comenzar.`;
+  document.getElementById('waiting-msg').innerText =
+            'Esperando que se conecten más jugadores...';
+}
+
 function showNoPlayersReadyDetail() {
   document.getElementById('ready-detail').innerText =
-    'Esperando jugadores conectados.';
+            'Esperando jugadores conectados.';
 }
 
 function showAllReadyDetail() {
   document.getElementById('ready-detail').innerText =
-    'Todos los jugadores están listos. La partida puede comenzar.';
+            'Todos los jugadores están listos. La partida puede comenzar.';
   document.getElementById('waiting-msg').innerText =
-    'Todos están listos. Esperando que el servidor inicie la partida...';
+            'Todos están listos. Esperando que el servidor ' +
+            'inicie la partida...';
 }
 
 function showOwnReadyDetail() {
   document.getElementById('ready-detail').innerText =
-    'Vos ya estás listo. Esperando a los demás jugadores.';
+            'Vos ya estás listo. Esperando a los demás jugadores.';
   document.getElementById('waiting-msg').innerText =
-    'Esperando que todos los jugadores estén listos...';
+            'Esperando que todos los jugadores estén listos...';
 }
 
 function showNotReadyDetail() {
   document.getElementById('ready-detail').innerText =
-    'Marcá que estás listo para habilitar el inicio de la partida.';
+            'Marcá que estás listo para habilitar el inicio de la partida.';
   document.getElementById('waiting-msg').innerText =
-    'Esperando que todos los jugadores estén listos...';
+            'Esperando que todos los jugadores estén listos...';
+}
+
+function handleReadyWarning(data) {
+  document.getElementById('ready-detail').innerText =
+            `Atención: quedan ${data.secondsRemaining} s para marcar READY.`;
+}
+
+function handleReadyTimeout() {
+  document.getElementById('waiting-msg').innerText =
+            'No marcaste READY dentro del tiempo disponible.';
 }
 
 /**
- * Solicita READY o UNREADY solo con conexión abierta y sesión LOBBY.
- * Deshabilita el control hasta recibir el próximo estado de sesión.
- */
+     * Solicita READY o UNREADY solo con conexión abierta y sesión LOBBY.
+     * Deshabilita el control hasta recibir el próximo estado de sesión.
+     */
 function toggleReady() {
   if (!canToggleReady()) return;
   readyActionPending = true;
@@ -747,8 +892,8 @@ function updateRoundTransition(state) {
 
 function updateRoundTransitionText(state) {
   document.getElementById('status').innerText =
-    `¡${state.winner} acierta! Era: "${state.songTitle}" ` +
-    `(+${state.points} pts). Siguiente ronda en ${state.timeLeft}s...`;
+            `¡${state.winner} acierta! Era: "${state.songTitle}" ` +
+            `(+${state.points} pts). Siguiente ronda en ${state.timeLeft}s...`;
 }
 
 function updateRoundOverlay(timeLeft) {
@@ -762,10 +907,10 @@ function updateRoundOverlay(timeLeft) {
 }
 
 /**
- * Muestra la cuenta regresiva local hasta el horario de inicio.
- * Al llegar a cero informa la espera de READY o del servidor.
- * @param {number} seconds Segundos restantes anunciados por el servidor.
- */
+     * Muestra la cuenta regresiva local hasta el horario de inicio.
+     * Al llegar a cero informa la espera de READY o del servidor.
+     * @param {number} seconds Segundos restantes anunciados por el servidor.
+     */
 function startCountdown(seconds) {
   if (countdownInterval) clearInterval(countdownInterval);
   const state = {remaining: seconds};
@@ -782,27 +927,27 @@ function updateStartCountdown(state) {
     return;
   }
   document.getElementById('countdown').innerText =
-    formatCountdown(state.remaining);
+            formatCountdown(state.remaining);
   state.remaining -= 1;
 }
 
 function showStartCountdownComplete() {
   const canStart = lastSessionState && lastSessionState.canStart;
   document.getElementById('countdown').innerText =
-    canStart ? '¡Listos! Esperando inicio...' : 'Esperando READY';
+            canStart ? '¡Listos! Esperando inicio...' : 'Esperando READY';
 }
 
 function formatCountdown(seconds) {
   const minutes = Math.floor(seconds / SECONDS_PER_MINUTE);
   const remainder = seconds % SECONDS_PER_MINUTE;
   return `${minutes.toString().padStart(2, '0')}:` +
-    remainder.toString().padStart(2, '0');
+            remainder.toString().padStart(2, '0');
 }
 
 /**
- * Genera hasta siete sugerencias locales por coincidencia de subcadena.
- * Seleccionar una sugerencia completa el campo, pero no envía la respuesta.
- */
+     * Genera hasta siete sugerencias locales por coincidencia de subcadena.
+     * Seleccionar una sugerencia completa el campo, pero no envía la respuesta.
+     */
 function handleInput() {
   const query = normalizeClientText(document.getElementById('answer').value);
   const container = document.getElementById('suggestions-list');
@@ -845,10 +990,10 @@ document.getElementById('answer').addEventListener('blur', () => {
 });
 
 /**
- * Envía ANSWER con el texto recortado si no está vacío y limpia el campo.
- * No valida la respuesta ni comprueba aquí que el socket esté abierto;
- * la adjudicación y elegibilidad son responsabilidad del servidor.
- */
+     * Envía ANSWER con el texto recortado si no está vacío y limpia el campo.
+     * No valida la respuesta ni comprueba aquí que el socket esté abierto;
+     * la adjudicación y elegibilidad son responsabilidad del servidor.
+     */
 function sendAnswer() {
   const ansField = document.getElementById('answer');
   const answer = ansField.value.trim();
@@ -862,12 +1007,12 @@ function sendAnswer() {
 }
 
 /**
- * Agrega un intento a la vista y desplaza el historial al último elemento.
- * No adjudica puntos: los datos proceden del mensaje recibido.
- * @param {string} text Respuesta a mostrar.
- * @param {boolean} isCorrect Indica si el intento fue correcto.
- * @param {number} pts Puntos recibidos para la presentación del intento.
- */
+     * Agrega un intento a la vista y desplaza el historial al último elemento.
+     * No adjudica puntos: los datos proceden del mensaje recibido.
+     * @param {string} text Respuesta a mostrar.
+     * @param {boolean} isCorrect Indica si el intento fue correcto.
+     * @param {number} pts Puntos recibidos para la presentación del intento.
+     */
 function addAttempt(text, isCorrect, pts) {
   const list = document.getElementById('attempts-list');
   if (list.querySelector('li[style*=\'color: #777\']')) list.innerHTML = '';
@@ -880,11 +1025,12 @@ function addAttempt(text, isCorrect, pts) {
 function buildAttemptHtml(text, isCorrect, pts) {
   if (isCorrect) {
     return `<span style="color: #2ecc71; font-weight: bold;">${text}</span> ` +
-      `<span style="font-size:12px; color:#2ecc71;">(+${pts} pts)</span>`;
+                '<span style="font-size:12px; color:#2ecc71;">' +
+                `(+${pts} pts)</span>`;
   }
   return '<span style="color: #e74c3c; text-decoration: line-through;">' +
-    `${text}</span> ` +
-    `<span style="font-size:11px; color:#e74c3c;">(-${pts} pts)</span>`;
+            `${text}</span> ` +
+            `<span style="font-size:11px; color:#e74c3c;">(-${pts} pts)</span>`;
 }
 
 function scrollAttemptsToEnd() {
@@ -893,21 +1039,22 @@ function scrollAttemptsToEnd() {
 }
 
 /**
- * Restaura el contador de puntos potenciales y el historial visual local.
- * No modifica los puntajes ni los intentos almacenados en el servidor.
- */
+     * Restaura el contador de puntos potenciales y el historial visual local.
+     * No modifica los puntajes ni los intentos almacenados en el servidor.
+     */
 function resetRoundState() {
   currentPotentialPoints = INITIAL_POTENTIAL_POINTS;
   document.getElementById('potential-points').innerText =
-    `Potenciales puntos: ${INITIAL_POTENTIAL_POINTS} pts`;
+            `Potenciales puntos: ${INITIAL_POTENTIAL_POINTS} pts`;
   const list = document.getElementById('attempts-list');
   list.innerHTML = '<li style="color: #777; justify-content: center;">' +
-    'Sin intentos aún</li>';
+            'Sin intentos aún</li>';
+  setAnswerControlsDisabled(false);
 }
 
 /**
- * Solicita el cierre del socket, si existe, y restaura la interfaz.
- */
+     * Solicita el cierre del socket, si existe, y restaura la interfaz.
+     */
 function leaveGame() {
   if (ws) {
     ws.close();
@@ -916,11 +1063,12 @@ function leaveGame() {
 }
 
 /**
- * Detiene los intervalos locales, pausa el audio y restablece el ingreso.
- * Limpia la identidad y READY locales; no reinicia la sesión del servidor.
- */
+     * Detiene los intervalos locales, pausa el audio y restablece el ingreso.
+     * Limpia la identidad y READY locales; no reinicia la sesión del servidor.
+     */
 function resetUI() {
   clearClientIntervals();
+  hideFinalResults();
   resetClientIdentity();
   resetMainVisibility();
   resetReadyControls();
@@ -946,7 +1094,7 @@ function resetMainVisibility() {
 function resetReadyControls() {
   document.getElementById('ready-summary').innerText = 'Listos: 0 / 0';
   document.getElementById('ready-detail').innerText =
-    'Marcá que estás listo para habilitar el inicio de la partida.';
+            'Marcá que estás listo para habilitar el inicio de la partida.';
   const button = document.getElementById('ready-button');
   button.className = 'btn-primary';
   button.innerText = 'Estoy listo';
@@ -960,6 +1108,6 @@ function resetLoginAndAudio() {
   player.style.display = 'none';
   document.getElementById('username').value = '';
 }
-    </script>
+</script>
 </body>
 </html>
