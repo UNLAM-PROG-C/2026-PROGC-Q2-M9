@@ -15,6 +15,40 @@ function extractGameResetBlock() {
   return html.slice(start, end);
 }
 
+function createMockDocument(elements) {
+  return {
+    getElementById(id) {
+      if (!elements.has(id)) {
+        elements.set(id, {
+          style: {}, addEventListener() {}, play: () => Promise.resolve(),
+        });
+      }
+      return elements.get(id);
+    },
+  };
+}
+
+function createFrontendContext(document) {
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const context = vm.createContext({document, console});
+  vm.runInContext(script, context);
+  return context;
+}
+
+function assertArtistDisplay(context, elements) {
+  context.handleRoundStart({
+    artist: 'Soda Stereo', roundId: 1, maxRounds: 4, mode: 'NORMAL',
+    audioUrl: 'https://example.test/preview',
+  });
+  assert.equal(elements.get('song-artist').textContent,
+      'Hoy jugamos con: Soda Stereo');
+  context.handleRoundStart({
+    roundId: 2, maxRounds: 4, mode: 'NORMAL',
+  });
+  assert.equal(elements.get('song-artist').textContent, '');
+}
+
+
 test('C21-01: index.html incluye contenedor visual del modo de audio', () => {
   assert.ok(html.includes('id="audio-mode-badge"'));
   assert.equal((html.match(/id="audio-player"/g) ?? []).length, 1);
@@ -45,25 +79,7 @@ test('C21-04: GAME_RESET limpia el indicador de modo de audio', () => {
 
 test('la ronda muestra el artista recibido y limpia el dato ausente', () => {
   const elements = new Map();
-  const document = {
-    getElementById(id) {
-      if (!elements.has(id)) {
-        elements.set(id, {
-          style: {}, addEventListener() {}, play: () => Promise.resolve(),
-        });
-      }
-      return elements.get(id);
-    },
-  };
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
-  const context = vm.createContext({document, console});
-  vm.runInContext(script, context);
-  context.handleRoundStart({
-    artist: 'Soda Stereo', roundId: 1, maxRounds: 4, mode: 'NORMAL',
-    audioUrl: 'https://example.test/preview',
-  });
-  assert.equal(elements.get('song-artist').textContent,
-      'Hoy jugamos con: Soda Stereo');
-  context.handleRoundStart({roundId: 2, maxRounds: 4, mode: 'NORMAL'});
-  assert.equal(elements.get('song-artist').textContent, '');
+  const document = createMockDocument(elements);
+  const context = createFrontendContext(document);
+  assertArtistDisplay(context, elements);
 });
