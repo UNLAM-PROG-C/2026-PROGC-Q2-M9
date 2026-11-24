@@ -519,7 +519,8 @@ function handleGameOver(data) {
   const winnerName = data.winner?.displayName || 'Nadie';
   document.getElementById('waiting-msg').innerHTML =
     `El ganador es: ${winnerName}<br><br><b>FELICITACIONES!!!</b><br><br>` +
-    'Esperando RESTART del operador para una nueva partida.';
+    'Hablá con Esteban y Máximo para retirar tu morcipan del Pamperito.' +
+    '<br><br>Nos encontramos mañana con otra partida.';
   document.getElementById('countdown').innerText = '🏁 FIN';
 }
 

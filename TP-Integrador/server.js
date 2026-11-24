@@ -33,7 +33,7 @@ import {
 import {
   RoundAudioResolver,
 } from './server/audio/round-audio-resolver.js';
-import {AudioMode} from './server/audio/model/audio-mode.js';
+import {AudioMode, isValidAudioMode} from './server/audio/model/audio-mode.js';
 import {encodePcmToWav} from './server/audio/pcm-wav-encoder.js';
 import {
   AUDIO_ROUTE_PREFIX,
@@ -647,11 +647,24 @@ function loadGameConfig() {
   delayNextRound = config.delayNextRound ?? DEFAULT_CONFIG_DELAY_SECONDS;
   maxRounds = config.maxRounds ?? DEFAULT_CONFIG_ROUNDS;
   applyConfiguredBandUrls(config);
+  applyConfiguredAudioModes(config);
   startTime = resolveConfiguredStartTime(config);
   adjustPastStartTime();
   printSavedConfig();
 }
 
+function resolveConfiguredAudioModes(config) {
+  const modes = config.enabledAudioModes;
+  if (!Array.isArray(modes) || modes.length === 0) return null;
+  const validModes = modes.filter((mode) => isValidAudioMode(mode));
+  return validModes.length > 0 ? validModes : [AudioMode.NORMAL];
+}
+
+function applyConfiguredAudioModes(config) {
+  const configuredModes = resolveConfiguredAudioModes(config);
+  if (!configuredModes || !audioPreparationManager) return;
+  audioPreparationManager.setModeSequence(configuredModes);
+}
 function readGameConfigFile() {
   if (!fs.existsSync(GAME_CONFIG_PATH)) {
     return {};

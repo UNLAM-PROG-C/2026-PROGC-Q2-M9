@@ -548,6 +548,15 @@ class AudioPreparationManager {
    * @return {!Array<number>} Lista ordenada de roundId objetivo.
    * @private
    */
+  /**
+   * Actualiza la secuencia de modos habilitados para rondas futuras.
+   * @param {!Array<string>} modeSequence Secuencia válida de modos.
+   */
+  setModeSequence(modeSequence) {
+    selectModeForRound(MINIMUM_ID, modeSequence);
+    this.modeSequence = Object.freeze([...modeSequence]);
+  }
+
   computeTargetRounds(currentRoundId, maxRounds) {
     const targets = [];
     for (let offset = 1; offset <= this.prefetchDepth; offset += 1) {
