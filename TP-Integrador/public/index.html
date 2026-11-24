@@ -35,7 +35,19 @@
             width: 450px;
             text-align: center;
         }
+        #final-results {
+            display: none;
+            margin: 18px 0;
+            padding: 14px;
+            background: #181818;
+            border: 1px solid #333;
+            border-radius: 8px;
+            text-align: left;
+        }
 
+        #final-results h3 {
+            text-align: center;
+        }
         #ready-panel {
             margin: 18px 0 8px 0;
             padding: 14px;
@@ -269,6 +281,10 @@
     <h2>⏳ Sala de Espera</h2>
     <p id="waiting-msg" style="color: #aaa; font-size: 14px; margin: 20px 0;">Esperando que el servidor dispare la partida...</p>
     <div id="countdown" style="font-size: 24px; color: #1db954; font-weight: bold; margin-bottom: 20px;">--:--</div>
+    <div id="final-results">
+        <h3>🏆 Resultado final</h3>
+        <ul id="final-score-list"></ul>
+    </div>
     <div id="ready-panel">
         <div id="ready-summary">Listos: 0 / 0</div>
         <p id="ready-detail">Marcá que estás listo para habilitar el inicio de la partida.</p>
@@ -458,6 +474,7 @@ function handleJoinRejected(data) {
 }
 
 function handleWaitingStart(data) {
+  hideFinalResults();
   songTitles = data.titles || [];
   document.getElementById('waiting-box').style.display = 'block';
   document.getElementById('waiting-msg').innerText =
@@ -537,9 +554,9 @@ function buildRoundEndedMessage(data) {
     ATTEMPTS_EXHAUSTED: 'Todos agotaron sus intentos.',
   };
   const reason = reasons[data.reason] ||
-        'La ronda terminó sin ganador.';
+            'La ronda terminó sin ganador.';
   return `${reason} Era: "${data.songTitle}". ` +
-        `Siguiente ronda en ${data.delay}s...`;
+            `Siguiente ronda en ${data.delay}s...`;
 }
 
 function handleGameOver(data) {
@@ -547,28 +564,79 @@ function handleGameOver(data) {
   document.getElementById('audio-player').pause();
   setGameWaitingVisibility(false);
   document.getElementById('ready-panel').style.display = 'none';
+  showFinalResults(data);
+  startGameOverCountdown(data.restartInSeconds);
+}
+
+function showFinalResults(data) {
   const winnerName = data.winner?.displayName || 'Nadie';
   document.getElementById('waiting-msg').innerHTML =
-        `El ganador es: ${winnerName}<br><br>` +
-        '<b>FELICITACIONES!!!</b><br><br>' +
-        'Esperando RESTART del operador para una nueva partida.';
-  document.getElementById('countdown').innerText = '🏁 FIN';
+        `Ganador: <b>${winnerName}</b><br><br>` +
+        'La próxima partida comenzará automáticamente.';
+  renderFinalLeaderboard(data.leaderboard || []);
+  document.getElementById('final-results').style.display = 'block';
+}
+
+function renderFinalLeaderboard(leaderboard) {
+  const list = document.getElementById('final-score-list');
+  list.innerHTML = '';
+  if (leaderboard.length === 0) {
+    showEmptyLeaderboard(list);
+    return;
+  }
+  const sorted = [...leaderboard].sort((a, b) => b.score - a.score);
+  sorted.forEach((player) => appendLeaderboardPlayer(list, player));
+}
+
+function startGameOverCountdown(seconds) {
+  if (countdownInterval) clearInterval(countdownInterval);
+  const state = {remaining: Math.max(0, Number(seconds) || 0)};
+  updateGameOverCountdown(state);
+  countdownInterval = setInterval(
+      () => updateGameOverCountdown(state),
+      MILLISECONDS_PER_SECOND,
+  );
+}
+
+function updateGameOverCountdown(state) {
+  if (state.remaining <= 0) {
+    clearInterval(countdownInterval);
+    document.getElementById('countdown').innerText = 'Reiniciando...';
+    return;
+  }
+  document.getElementById('countdown').innerText =
+        `Nueva partida en ${state.remaining} s`;
+  state.remaining -= 1;
+}
+
+function hideFinalResults() {
+  document.getElementById('final-results').style.display = 'none';
+  document.getElementById('final-score-list').innerHTML = '';
 }
 
 function handleGameReset(data) {
   clearClientIntervals();
+  hideFinalResults();
   resetAudioPlayer();
+  resetReadyStateForNewGame(data);
+  setGameWaitingVisibility(false);
+  showNewGameWaitingMessage(data);
+  resetRoundState();
+  resetAudioModeBadge();
+}
+
+function resetReadyStateForNewGame(data) {
   myReady = false;
   readyActionPending = false;
   songTitles = data.titles || songTitles;
-  setGameWaitingVisibility(false);
   document.getElementById('ready-panel').style.display = 'block';
+}
+
+function showNewGameWaitingMessage(data) {
   document.getElementById('waiting-msg').innerText =
-            `Nueva partida preparada (gameId=${data.gameId}). ` +
-            'Todos deben marcar READY nuevamente.';
+        `Nueva partida preparada (gameId=${data.gameId}). ` +
+        'Todos deben marcar READY nuevamente.';
   document.getElementById('countdown').innerText = 'Esperando READY';
-  resetRoundState();
-  resetAudioModeBadge();
 }
 
 function resetAudioPlayer() {
@@ -613,8 +681,8 @@ function handleAnswerRejected(data) {
   }
   if (data.reason === 'SESSION_NOT_ACTIVE') {
     document.getElementById('status').innerText =
-          'Respuesta rechazada: la sesión está en estado ' +
-          `${data.sessionState}.`;
+                'Respuesta rechazada: la sesión está en estado ' +
+                `${data.sessionState}.`;
   }
 
   if (data.reason === 'ATTEMPT_LIMIT_REACHED') {
@@ -672,6 +740,8 @@ const SERVER_MESSAGE_HANDLERS = {
   PLAYER_REGISTERED: handlePlayerRegistered,
   JOIN_REJECTED: handleJoinRejected,
   SESSION_STATE: updateSessionState,
+  READY_WARNING: handleReadyWarning,
+  READY_TIMEOUT: handleReadyTimeout,
   WAITING_START: handleWaitingStart,
   WAITING_NEXT_ROUND: handleWaitingNextRound,
   ROUND_ENDED: handleRoundEnded,
@@ -706,7 +776,8 @@ function updateSessionState(data) {
 
 function updateReadySummary(data) {
   document.getElementById('ready-summary').innerText =
-            `Listos: ${data.readyCount} / ${data.connectedCount}`;
+            `Listos: ${data.readyCount}/${data.connectedCount} | ` +
+            `Jugadores: ${data.connectedCount}/${data.maxPlayers}`;
 }
 
 function updateLobbyReadyControls(data) {
@@ -744,8 +815,8 @@ function showAllReadyDetail() {
   document.getElementById('ready-detail').innerText =
             'Todos los jugadores están listos. La partida puede comenzar.';
   document.getElementById('waiting-msg').innerText =
-        'Todos están listos. Esperando que el servidor ' +
-        'inicie la partida...';
+            'Todos están listos. Esperando que el servidor ' +
+            'inicie la partida...';
 }
 
 function showOwnReadyDetail() {
@@ -760,6 +831,16 @@ function showNotReadyDetail() {
             'Marcá que estás listo para habilitar el inicio de la partida.';
   document.getElementById('waiting-msg').innerText =
             'Esperando que todos los jugadores estén listos...';
+}
+
+function handleReadyWarning(data) {
+  document.getElementById('ready-detail').innerText =
+            `Atención: quedan ${data.secondsRemaining} s para marcar READY.`;
+}
+
+function handleReadyTimeout() {
+  document.getElementById('waiting-msg').innerText =
+            'No marcaste READY dentro del tiempo disponible.';
 }
 
 /**
@@ -944,8 +1025,8 @@ function addAttempt(text, isCorrect, pts) {
 function buildAttemptHtml(text, isCorrect, pts) {
   if (isCorrect) {
     return `<span style="color: #2ecc71; font-weight: bold;">${text}</span> ` +
-          '<span style="font-size:12px; color:#2ecc71;">' +
-          `(+${pts} pts)</span>`;
+                '<span style="font-size:12px; color:#2ecc71;">' +
+                `(+${pts} pts)</span>`;
   }
   return '<span style="color: #e74c3c; text-decoration: line-through;">' +
             `${text}</span> ` +
@@ -987,6 +1068,7 @@ function leaveGame() {
      */
 function resetUI() {
   clearClientIntervals();
+  hideFinalResults();
   resetClientIdentity();
   resetMainVisibility();
   resetReadyControls();

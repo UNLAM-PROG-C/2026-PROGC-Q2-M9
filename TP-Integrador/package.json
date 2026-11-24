@@ -36,6 +36,8 @@
     "test:disconnect-handling": "node --test tests/e2e/e2e-disconnect-handling-test.js",
     "test:empty-game-abort": "node --test tests/e2e/e2e-empty-game-abort-test.js",
     "test:heartbeat": "node --test tests/e2e/e2e-heartbeat-test.js",
+    "test:ready-timeout": "node --test tests/e2e/e2e-ready-timeout-test.js",
+    "test:auto-restart": "node --test tests/e2e/e2e-auto-restart-test.js",
     "test:c24": "node --test tests/concurrency-audio/pool-queue-buffer-concurrency-test.js",
     "test:e2e:c22": "node tests/e2e/e2e-normal-altered-rounds-test.js",
     "test:e2e:c23": "node tests/e2e/e2e-late-join-restart-test.js",

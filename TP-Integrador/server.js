@@ -76,7 +76,21 @@ const TEST_HEARTBEAT_INTERVAL_MS = Math.max(
         10,
     ),
 );
-
+const TEST_READY_TIMEOUT_MS = Math.max(
+    0,
+    Number.parseInt(process.env.TRIVIA_TEST_READY_TIMEOUT_MS || '0', 10),
+);
+const TEST_READY_WARNING_MS = Math.max(
+    0,
+    Number.parseInt(process.env.TRIVIA_TEST_READY_WARNING_MS || '0', 10),
+);
+const TEST_GAME_OVER_DISPLAY_MS = Math.max(
+    0,
+    Number.parseInt(
+        process.env.TRIVIA_TEST_GAME_OVER_DISPLAY_MS || '0',
+        10,
+    ),
+);
 
 const DEFAULT_CONFIG_DELAY_SECONDS = 10;
 const DEFAULT_CONFIG_ROUNDS = 5;
@@ -85,6 +99,9 @@ const DEFAULT_MAX_PLAYERS = 6;
 const DEFAULT_MAX_WRONG_ATTEMPTS = 5;
 const DEFAULT_ROUND_TIMEOUT_SECONDS = 60;
 const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 10;
+const DEFAULT_READY_TIMEOUT_SECONDS = 30;
+const DEFAULT_READY_WARNING_SECONDS = 10;
+const DEFAULT_GAME_OVER_DISPLAY_SECONDS = 15;
 const DEFAULT_START_OFFSET_MS = 60000;
 const PAST_START_DELAY_MS = 30000;
 const FORCE_NEXT_DELAY_SECONDS = 5;
@@ -416,11 +433,18 @@ let maxWrongAttempts = DEFAULT_MAX_WRONG_ATTEMPTS;
 let roundTimeoutSeconds = DEFAULT_ROUND_TIMEOUT_SECONDS;
 let heartbeatIntervalSeconds =
   DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
+let readyTimeoutSeconds = DEFAULT_READY_TIMEOUT_SECONDS;
+let readyWarningSeconds = DEFAULT_READY_WARNING_SECONDS;
+let gameOverDisplaySeconds = DEFAULT_GAME_OVER_DISPLAY_SECONDS;
+const readyTimeouts = new Map();
+const readyWarningTimeouts = new Map();
 let startTime = null;
 let gameStarted = false;
 let gameFinished = false;
 let transitionTimeout = null;
 let roundTimeout = null;
+let gameOverTimeout = null;
+let gameOverRestartAt = null;
 // V3 / C4: SessionCoordinator refleja explícitamente
 // el ciclo de vida que la aplicación ya ejecuta.
 const sessionCoordinator = new SessionCoordinator();
@@ -641,6 +665,7 @@ let lastReadyBarrierStatus = null;
  */
 function startGameFromLobby(reason) {
   if (!canStartGameFromLobby()) return false;
+  clearAllReadyTimers();
   lastReadyBarrierStatus = null;
   transitionSessionTo(SessionState.ROUND_ACTIVE, reason);
   initializeFirstRound();
@@ -682,6 +707,7 @@ function logCurrentRoundStart() {
 function loadGameConfig() {
   const config = readGameConfigFile();
   applyGameLimits(config);
+  applyGameTiming(config);
   applyConfiguredBandUrls(config);
   startTime = resolveConfiguredStartTime(config);
   adjustPastStartTime();
@@ -689,17 +715,26 @@ function loadGameConfig() {
 }
 
 function applyGameLimits(config) {
-  delayNextRound = config.delayNextRound ?? DEFAULT_CONFIG_DELAY_SECONDS;
   maxRounds = config.maxRounds ?? DEFAULT_CONFIG_ROUNDS;
   minPlayers = config.minPlayers ?? DEFAULT_MIN_PLAYERS;
   maxPlayers = config.maxPlayers ?? DEFAULT_MAX_PLAYERS;
   maxWrongAttempts =
     config.maxWrongAttempts ?? DEFAULT_MAX_WRONG_ATTEMPTS;
+}
+
+function applyGameTiming(config) {
+  delayNextRound = config.delayNextRound ?? DEFAULT_CONFIG_DELAY_SECONDS;
   roundTimeoutSeconds =
     config.roundTimeoutSeconds ?? DEFAULT_ROUND_TIMEOUT_SECONDS;
   heartbeatIntervalSeconds =
     config.heartbeatIntervalSeconds ??
     DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
+  readyTimeoutSeconds =
+    config.readyTimeoutSeconds ?? DEFAULT_READY_TIMEOUT_SECONDS;
+  readyWarningSeconds =
+    config.readyWarningSeconds ?? DEFAULT_READY_WARNING_SECONDS;
+  gameOverDisplaySeconds =
+    config.gameOverDisplaySeconds ?? DEFAULT_GAME_OVER_DISPLAY_SECONDS;
 }
 
 function readGameConfigFile() {
@@ -941,17 +976,20 @@ function finishCurrentGame(reason) {
   gameStarted = false;
   gameFinished = true;
   const finalWinner = getFinalWinner();
+  scheduleAutomaticRestart();
   broadcastGameOver(finalWinner);
   broadcastSessionState();
   console.log(`[*] ¡Partida finalizada! Ganador: ${winnerLabel(finalWinner)}`);
 }
 
+function scheduleReadyTimersForConnectedPlayers() {
+  for (const playerId of getConnectedPlayerIds()) {
+    schedulePlayerReadyTimers(playerId);
+  }
+}
+
 function broadcastGameOver(finalWinner) {
-  broadcast({
-    type: 'GAME_OVER',
-    winner: buildWinnerView(finalWinner),
-    leaderboard: buildLeaderboardView(),
-  });
+  broadcast(buildGameOverPayload(finalWinner));
 }
 
 function winnerLabel(winner) {
@@ -1145,6 +1183,7 @@ function handleJoin(ws, context, data) {
   broadcastLeaderboard();
   broadcastSessionState();
   sendJoinState(ws, player);
+  schedulePlayerReadyTimers(player.playerId);
 }
 
 function rejectJoinWhenRoomIsFull(ws) {
@@ -1206,11 +1245,7 @@ function sendWaitingStart(ws) {
 }
 
 function sendGameOver(ws) {
-  ws.send(JSON.stringify({
-    type: 'GAME_OVER',
-    leaderboard: buildLeaderboardView(),
-    winner: buildWinnerView(getFinalWinner()),
-  }));
+  ws.send(JSON.stringify(buildGameOverPayload(getFinalWinner())));
 }
 
 function sendWaitingNextRound(ws, player) {
@@ -1223,20 +1258,119 @@ function sendWaitingNextRound(ws, player) {
   }));
 }
 
+function getReadyTimeoutMs() {
+  if (TEST_MODE && TEST_READY_TIMEOUT_MS > 0) {
+    return TEST_READY_TIMEOUT_MS;
+  }
+  return readyTimeoutSeconds * MILLISECONDS_PER_SECOND;
+}
+
+function getReadyWarningMs() {
+  if (TEST_MODE && TEST_READY_WARNING_MS > 0) {
+    return TEST_READY_WARNING_MS;
+  }
+  return readyWarningSeconds * MILLISECONDS_PER_SECOND;
+}
+
+function getReadyWarningDelayMs() {
+  return Math.max(0, getReadyTimeoutMs() - getReadyWarningMs());
+}
+
 function handleReadyChange(ws, ready) {
   const player = getPlayerBySocket(ws);
   if (!player) {
     logMissingReadyPlayer(ready);
     return;
   }
+  processReadyChange(player, ready);
+}
+
+function processReadyChange(player, ready) {
   try {
     const result = updatePlayerReady(player, ready);
     logReadyChange(player, result, ready);
+    updateReadyTimers(player.playerId, ready);
     broadcastSessionState();
     maybeStartAfterReady(ready);
   } catch (error) {
     logReadyError(player, error, ready);
   }
+}
+
+function updateReadyTimers(playerId, ready) {
+  if (ready) {
+    clearPlayerReadyTimers(playerId);
+    return;
+  }
+  schedulePlayerReadyTimers(playerId);
+}
+
+function clearPlayerReadyTimers(playerId) {
+  clearStoredTimeout(readyTimeouts, playerId);
+  clearStoredTimeout(readyWarningTimeouts, playerId);
+}
+
+function clearStoredTimeout(timers, playerId) {
+  const timer = timers.get(playerId);
+  if (timer) clearTimeout(timer);
+  timers.delete(playerId);
+}
+
+function schedulePlayerReadyTimers(playerId) {
+  clearPlayerReadyTimers(playerId);
+  if (sessionCoordinator.getState() !== SessionState.LOBBY) return;
+  scheduleReadyWarning(playerId);
+  scheduleReadyTimeout(playerId);
+}
+
+function scheduleReadyWarning(playerId) {
+  const timer = setTimeout(
+      () => warnPlayerReadyTimeout(playerId),
+      getReadyWarningDelayMs(),
+  );
+  readyWarningTimeouts.set(playerId, timer);
+}
+
+function scheduleReadyTimeout(playerId) {
+  const timer = setTimeout(
+      () => expirePlayerReady(playerId),
+      getReadyTimeoutMs(),
+  );
+  readyTimeouts.set(playerId, timer);
+}
+
+function warnPlayerReadyTimeout(playerId) {
+  readyWarningTimeouts.delete(playerId);
+  const player = playersById.get(playerId);
+  if (!player?.connected || isPlayerReady(playerId)) return;
+  sendToPlayer(playerId, {
+    type: 'READY_WARNING',
+    secondsRemaining: readyWarningSeconds,
+  });
+}
+
+function isPlayerReady(playerId) {
+  return sessionCoordinator.getReadyPlayerIds().includes(playerId);
+}
+
+function expirePlayerReady(playerId) {
+  clearPlayerReadyTimers(playerId);
+  const player = playersById.get(playerId);
+  if (!player?.connected || isPlayerReady(playerId)) return;
+  sendToPlayer(playerId, {
+    type: 'READY_TIMEOUT',
+    readyTimeoutSeconds,
+  });
+  closePlayerForReadyTimeout(playerId);
+}
+
+function closePlayerForReadyTimeout(playerId) {
+  const ws = socketByPlayerId.get(playerId);
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  console.log(
+      `[SC] READY timeout [${playerId}]. Jugador excluido del lobby.`,
+  );
+  ws.close(4000, 'READY_TIMEOUT');
 }
 
 function logMissingReadyPlayer(ready) {
@@ -1349,11 +1483,18 @@ function handleSocketClose(ws, context) {
 }
 
 function disconnectRegisteredPlayer(player) {
+  clearPlayerReadyTimers(player.playerId);
   sessionCoordinator.removePlayerReadiness(player.playerId);
   console.log(
       '[-] Usuario desconectado: ' +
     `[${player.playerId} | ${player.displayName}]`,
   );
+}
+
+function clearAllReadyTimers() {
+  for (const playerId of playersById.keys()) {
+    clearPlayerReadyTimers(playerId);
+  }
 }
 
 function maybeStartAfterDisconnect() {
@@ -1466,10 +1607,12 @@ function handleOperatorCommand(answer) {
  */
 function restartGame() {
   if (!canRestartGame()) return false;
+  clearGameOverTimeout();
   clearTransitionTimeout();
   const restart = sessionCoordinator.restartSession();
   resetAudioForRestart(restart);
   resetGameRuntimeState();
+  scheduleReadyTimersForConnectedPlayers();
   logGameRestart(restart);
   broadcastGameReset(restart);
   return true;
@@ -1483,6 +1626,49 @@ function canRestartGame() {
     'RESTART solo es válido desde GAME_OVER.',
   );
   return false;
+}
+
+function getGameOverDisplayMs() {
+  if (TEST_MODE && TEST_GAME_OVER_DISPLAY_MS > 0) {
+    return TEST_GAME_OVER_DISPLAY_MS;
+  }
+  return gameOverDisplaySeconds * MILLISECONDS_PER_SECOND;
+}
+
+function clearGameOverTimeout() {
+  if (gameOverTimeout) clearTimeout(gameOverTimeout);
+  gameOverTimeout = null;
+  gameOverRestartAt = null;
+}
+
+function getGameOverRemainingSeconds() {
+  if (!gameOverRestartAt) return gameOverDisplaySeconds;
+  const remaining = gameOverRestartAt - Date.now();
+  return Math.max(0, Math.ceil(remaining / MILLISECONDS_PER_SECOND));
+}
+
+function buildGameOverPayload(finalWinner) {
+  return {
+    type: 'GAME_OVER',
+    winner: buildWinnerView(finalWinner),
+    leaderboard: buildLeaderboardView(),
+    restartInSeconds: getGameOverRemainingSeconds(),
+  };
+}
+
+function scheduleAutomaticRestart() {
+  clearGameOverTimeout();
+  const delay = getGameOverDisplayMs();
+  gameOverRestartAt = Date.now() + delay;
+  gameOverTimeout = setTimeout(
+      runAutomaticRestart,
+      delay,
+  );
+}
+
+function runAutomaticRestart() {
+  gameOverTimeout = null;
+  restartGame();
 }
 
 function clearTransitionTimeout() {
