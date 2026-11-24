@@ -572,7 +572,9 @@ function showFinalResults(data) {
   const winnerName = data.winner?.displayName || 'Nadie';
   document.getElementById('waiting-msg').innerHTML =
         `Ganador: <b>${winnerName}</b><br><br>` +
-        'La próxima partida comenzará automáticamente.';
+        'La próxima partida comenzará automáticamente.<br><br>' +
+        'Hablá con Esteban y Máximo para retirar tu morcipan del Pamperito.' +
+        '<br><br>En unos segundos arrancamos otra partida.';
   renderFinalLeaderboard(data.leaderboard || []);
   document.getElementById('final-results').style.display = 'block';
 }

@@ -542,6 +542,15 @@ class AudioPreparationManager {
   }
 
   /**
+   * Actualiza la secuencia de modos habilitados para rondas futuras.
+   * @param {!Array<string>} modeSequence Secuencia válida de modos.
+   */
+  setModeSequence(modeSequence) {
+    selectModeForRound(MINIMUM_ID, modeSequence);
+    this.modeSequence = Object.freeze([...modeSequence]);
+  }
+
+  /**
    * Calcula las rondas futuras dentro de prefetchDepth y hasta maxRounds.
    * @param {number} currentRoundId Ronda actual en juego.
    * @param {number} maxRounds Total de rondas de la partida.
