@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
+    "test": "node tests/e2e/regression-suite-runner.js full",
+    "test:playlist": "node --test tests/itunes-playlist-test.js",
     "test:alt02": "node tests/alt02-concurrent-answers.js",
     "test:alt02:matrix": "node tests/alt02-matrix.js",
     "test:c05": "node tests/audio-model-test.js",
@@ -45,7 +47,8 @@
     "test:c26:regression": "node tests/e2e/v3-full-regression-test.js",
     "test:regression:core": "node tests/e2e/regression-suite-runner.js core",
     "test:regression:env": "node tests/e2e/regression-suite-runner.js env",
-    "test:regression:full": "node tests/e2e/regression-suite-runner.js full"
+    "test:regression:full": "node tests/e2e/regression-suite-runner.js full",
+    "test:regression:functional": "node tests/e2e/regression-suite-runner.js functional"
   },
   "dependencies": {
     "express": "^4.19.2",

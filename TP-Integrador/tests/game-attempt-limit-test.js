@@ -3,7 +3,13 @@ import test from 'node:test';
 import {GameCoordinator} from '../game/game-coordinator.js';
 
 function createPlayer() {
-  return {playerId: 'P001', displayName: 'Ale', score: 0, attempts: 0};
+  return {
+    playerId: 'P001',
+    displayName: 'Ale',
+    score: 0,
+    attempts: 0,
+    connected: true,
+  };
 }
 
 function createContext() {

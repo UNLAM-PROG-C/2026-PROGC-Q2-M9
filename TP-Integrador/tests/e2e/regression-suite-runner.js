@@ -41,10 +41,23 @@ const ENV_SCRIPTS = [
   'test:c19a',
 ];
 
+const FUNCTIONAL_SCRIPTS = [
+  'test:attempt-limit',
+  'test:round-timeout',
+  'test:attempts-exhausted',
+  'test:disconnect-handling',
+  'test:empty-game-abort',
+  'test:heartbeat',
+  'test:ready-timeout',
+  'test:auto-restart',
+  'test:playlist',
+];
+
 const SUITES = {
   core: CORE_SCRIPTS,
   env: ENV_SCRIPTS,
-  full: [...CORE_SCRIPTS, ...ENV_SCRIPTS],
+  functional: FUNCTIONAL_SCRIPTS,
+  full: [...CORE_SCRIPTS, ...ENV_SCRIPTS, ...FUNCTIONAL_SCRIPTS],
 };
 
 function npmCliPath() {
