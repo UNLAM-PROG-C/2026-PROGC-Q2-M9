@@ -1,0 +1,7 @@
+﻿node_modules/
+*.log
+.idea/
+tests/spikes/audio/output/
+
+# Informes locales de ESLint
+/lint-report*.json
