@@ -1,34 +1,94 @@
-# Trivia Musical - Baseline V4
+# Trivia Musical
 
-## Selecci贸n de canciones
+El proyecto consiste en el desarrollo de una aplicaci贸n web multijugador de trivia musical desarrollada para la materia Programaci贸n Concurrente. Se trata de un juego donde los participantes escuchan fragmentos de canciones y tienen que adivinar sus t铆tulos. Para ello se utiliza un servidor Node.js que coordina la sala, las rondas, las respuestas y la puntuaci贸n en tiempo real. Los clientes se conectan a trav茅s de un navegador web.
 
-Al iniciar el servidor se elige al azar una URL de `ITUNES_SEARCH_URLS` en
-`server.js`. La playlist contiene canciones del artista indicado en el
-par谩metro `term` de esa URL y se mezcla antes de jugar. La misma selecci贸n
-se conserva al reiniciar una partida; para elegir otra se reinicia el servidor.
+## Funcionalidades
 
-## Baseline V3 de origen
+- Sala de espera con ingreso de participantes y confirmaci贸n antes de iniciar.
+- Playlist obtenida con la API de iTunes. El servidor selecciona
+  una de las direcciones de b煤squeda configuradas y utiliza canciones
+  disponibles para la partida.
+- Rondas con tiempo l铆mite, pausa entre rondas y cierre de partida.
+- Respuestas en tiempo real y adjudicaci贸n ordenada en el servidor: el primer
+  acierto procesado gana la ronda.
+- Puntaje potencial inicial de 100 puntos. Cada respuesta incorrecta descuenta
+  5 puntos, con un m铆nimo de 10; la cantidad m谩xima de errores por ronda es
+  configurable.
+- Tabla de posiciones, aviso de ganador y reinicio para una nueva partida.
 
-Tag local de origen:
-session-lifecycle-v3-complete
+## Tecnolog铆as
 
-Commit de origen:
-f855cdf16d13b602c866bfd48035cfbf3f1370cf
+| 脕rea | Tecnolog铆a |
+|---|---|
+| Servidor | Node.js, JavaScript, Express |
+| Comunicaci贸n en tiempo real | WebSocket, mediante `ws` |
+| Interfaz | HTML y JavaScript |
+| Manejo del audio | `worker_threads`, `ffmpeg-static` y m贸dulos propios de procesamiento |
+| Pruebas y calidad | Node.js test runner, pruebas de integraci贸n y ESLint |
 
-Esta versi髇 fue importada al repositorio oficial de la c醫edra como punto de partida de V4.
+## Funcionamiento y concurrencia
 
-## Validaciones realizadas
+El servidor HTTP sirve la interfaz de `public/` y mantiene las conexiones
+WebSocket con los navegadores. La sesi贸n de juego pasa por los estados de sala
+de espera, ronda activa, intervalo entre rondas y partida finalizada. El
+servidor valida las respuestas y modifica los puntajes, y los clientes presentan
+el estado recibido.
 
-- npm ci: OK
-- ALT-02 matriz concurrente: 4/4 PASS
-- npm start: OK
-- Working tree original de V3: limpio antes de exportar
+Las respuestas se encolan para procesarlas de forma ordenada, evitando que
+respuestas concurrentes adjudiquen m谩s de un ganador para la misma ronda. El
+proyecto tambi茅n incluye un sistema de preparaci贸n de audio con cola de
+trabajos, pool de worker_threads y buffer de rondas preparadas.
 
-## Flujo Git V4
+## Requisitos
 
-develop
-  -> integration/tp-integrador-v4
-       -> feature/<tarea>
+### Servidor
 
-La rama integration/tp-integrador-v4 funciona como base com鷑 de integraci髇.
-El desarrollo de funcionalidades debe realizarse en ramas feature/* y luego integrarse.
+- Node.js. Se recomienda Node.js 22.13 o posterior.
+- npm.
+- Conexi贸n a Internet para instalar dependencias y consultar iTunes; la
+  disponibilidad de previews depende del servicio externo.
+- El equipo debe poder ejecutar Node.js y sus dependencias.
+
+### Sistema operativo y clientes
+
+- Se requiere un navegador con soporte para WebSocket, JavaScript y
+  reproducci贸n de audio HTML5.
+- Cada participante necesita conexi贸n de red con el servidor y salida de
+  audio.
+
+## Instalaci贸n y ejecuci贸n
+
+Desde una terminal, ubicarse en la carpeta del proyecto:
+
+```bash
+cd TP-Integrador
+npm ci
+npm start
+```
+
+Abrir [http://localhost:3000](http://localhost:3000) en el navegador. El puerto
+predeterminado es `3000`; se puede cambiar mediante la variable de entorno
+`PORT`. Para jugar desde otros equipos, deben tener acceso de red al servidor y
+usar su direcci贸n IP y puerto.
+
+## Configuraci贸n
+
+Editar `game-config.json` antes de iniciar el servidor:
+
+| Propiedad | Descripci贸n |
+|---|---|
+| `startTime` | Hora programada de inicio; puede ser `null`. |
+| `startDelaySeconds` | Demora inicial antes de comenzar. |
+| `delayNextRound` | Pausa entre rondas. |
+| `roundTimeoutSeconds` | Duraci贸n m谩xima de una ronda. |
+| `maxRounds` | Cantidad de rondas de la partida. |
+| `minPlayers`, `maxPlayers` | L铆mites de participantes. |
+| `maxWrongAttempts` | M谩ximo de respuestas incorrectas por jugador y ronda. |
+| `itunesSearchUrls` | Direcciones de b煤squeda de canciones en iTunes. |
+
+## Pruebas y lint
+
+```bash
+npm test
+npm run lint
+```
